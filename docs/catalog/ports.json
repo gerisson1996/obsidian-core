@@ -1,6 +1,176 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "project": "NX Port Hub",
+  "catalog_id": "obsidian-core-main",
+  "catalog_url": "https://gerisson1996.github.io/obsidian-core/catalog/ports.json",
   "updated_at": "2026-10-25",
-  "ports": []
+  "categories": [
+    {
+      "id": "fps",
+      "name": "Tiro em Primeira Pessoa (FPS)"
+    },
+    {
+      "id": "terror",
+      "name": "Survival Horror / Ação"
+    },
+    {
+      "id": "acao",
+      "name": "Ação e Aventura"
+    },
+    {
+      "id": "rpg",
+      "name": "RPG"
+    },
+    {
+      "id": "plataforma",
+      "name": "Plataforma"
+    },
+    {
+      "id": "motor",
+      "name": "Motores de Jogo (Engines)"
+    }
+  ],
+  "install_profiles": {
+    "xbox_recomp_nro": {
+      "description": "Instala o executável .nro recompilado estaticamente em sdmc:/switch/<id>/ preservando configurações, logs, saves e a pasta game/ com os arquivos originais do usuário.",
+      "target_base_dir": "sdmc:/switch/",
+      "require_safe_paths": true
+    }
+  },
+  "ports": [
+    {
+      "id": "black",
+      "title": "Black (Xbox)",
+      "short_description": "Port nativo por recompilação estática do clássico FPS Black (Xbox, 2006) para Nintendo Switch com Vulkan/NVK, até 60 FPS e suporte à tradução PT-BR.",
+      "description": "Port experimental de Black (Xbox clássico, Criterion Games, 2006) para Nintendo Switch feito por recompilação estática (x86 traduzido para C++ e compilado para ARM64 com XboxXBE-Recomp e Black-Android). Não é emulação: o código do jogo roda nativamente sobre Vulkan (NVK) e áudio do Switch em até 60 FPS, incluindo menus, vídeos, som e fases. Suporta a tradução em Português Brasileiro (convertendo o default.xbe europeu automaticamente no próprio console).",
+      "category": "fps",
+      "version": "0.1.0",
+      "release_date": "2026-10-23",
+      "author": "gerisson1996",
+      "upstream_url": "https://github.com/gerisson1996/BLACK-NX-PORT",
+      "Thread_url": "https://gbatemp.net/threads/black-xbox-nx-port.685756/",
+      "license": "MIT",
+      "cover_url": "",
+      "screenshots": [],
+      "compatibility": {
+        "status": "jogavel",
+        "min_hos_version": "16.0.0",
+        "atmosphere_required": true,
+        "applet_mode_supported": false,
+        "recommended_launch_mode": "title_takeover",
+        "notes": "Jogo completo rodando em até 60 FPS. Obrigatório iniciar pelo modo Title Takeover (segurando R ao abrir qualquer jogo instalado) para liberar toda a memória RAM."
+      },
+      "package": {
+        "provider": "github_releases",
+        "releases_page_url": "https://github.com/gerisson1996/BLACK-NX-PORT/releases",
+        "download_url": "",
+        "file_name": "black.nro",
+        "archive_type": "nro",
+        "download_size_bytes": 0,
+        "installed_size_bytes": 0,
+        "sha256": ""
+      },
+      "installation": {
+        "profile": "xbox_recomp_nro",
+        "install_dir": "sdmc:/switch/black",
+        "entry_nro": "sdmc:/switch/black/black.nro",
+        "preserve_paths": [
+          "game/",
+          "logs/"
+        ],
+        "steps_pt_br": [
+          "Baixe o arquivo black.nro e coloque em sdmc:/switch/black/black.nro.",
+          "Copie os arquivos da sua cópia legítima do disco de Black (default.xbe + pastas) ou a .iso para sdmc:/switch/black/game/.",
+          "No Nintendo Switch com Atmosphère, segure o botão R ao abrir qualquer jogo instalado para entrar no hbmenu (Title Takeover) e inicie o Black."
+        ]
+      },
+      "original_game_files": {
+        "required": true,
+        "explanation_pt_br": "O port não inclui nenhum arquivo comercial do jogo. Você precisa fornecer os arquivos originais do seu disco de Black (Xbox clássico, versão US ou versão Europeia com tradução PT-BR).",
+        "target_directory": "sdmc:/switch/black/game",
+        "required_files": [
+          {
+            "relative_path": "default.xbe",
+            "description": "Executável original do disco de Xbox (US ou Europeu) junto às pastas do jogo (ou imagem .iso)",
+            "optional": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "coldfear",
+      "title": "Cold Fear (Xbox)",
+      "short_description": "Port nativo por recompilação estática de Cold Fear (Xbox, 2005) para Nintendo Switch com renderizador Vulkan/NVK e menu de mods integrado.",
+      "description": "Port nativo de Cold Fear (Xbox, Ubisoft, 2005) para Nintendo Switch via recompilação estática (executável x86 recompilado em C para ARM64 com xboxrecomp e Vulkan/NVK). Inclui efeitos de áudio e vozes via FMOD, iluminação e sombras das lâmpadas no NV2A, vídeos em tela cheia, resolução interna 960x720 por padrão e menu de mods integrado no jogo (segure - e aperte R3 para ajustar brilho, resolução, contador de FPS, sombras, névoa e overclock).",
+      "category": "terror",
+      "version": "0.0.3",
+      "release_date": "2026-10-22",
+      "author": "gerisson1996 (RECOMP-GUTO)",
+      "upstream_url": "https://github.com/gerisson1996/COLD-FEAR-NX-PORT",
+      "thread_url": "https://gbatemp.net/threads/cold-fear-nx-port-xbox-classic.685667/",
+      "license": "MIT",
+      "cover_url": "https://raw.githubusercontent.com/gerisson1996/COLD-FEAR-NX-PORT/main/cold-fear-switch-xbox-port-cover-v2.png",
+      "icon_url": "https://raw.githubusercontent.com/gerisson1996/COLD-FEAR-NX-PORT/main/coldfear-icon-256.jpg",
+      "screenshots": [],
+      "compatibility": {
+        "status": "experimental",
+        "min_hos_version": "16.0.0",
+        "atmosphere_required": true,
+        "applet_mode_supported": false,
+        "recommended_launch_mode": "title_takeover",
+        "notes": "Jogável no hardware real (~22 a 30 FPS no navio sem overclock). Para abrir o menu de mods no jogo, segure '-' e pressione R3. Requer Title Takeover (segurar R ao abrir um jogo)."
+      },
+      "package": {
+        "provider": "github_releases",
+        "releases_page_url": "https://github.com/gerisson1996/COLD-FEAR-NX-PORT/releases/tag/v0.0.3",
+        "download_url": "",
+        "file_name": "coldfear.nro",
+        "archive_type": "nro",
+        "download_size_bytes": 0,
+        "installed_size_bytes": 0,
+        "sha256": ""
+      },
+      "installation": {
+        "profile": "xbox_recomp_nro",
+        "install_dir": "sdmc:/switch/coldfear",
+        "entry_nro": "sdmc:/switch/coldfear/coldfear.nro",
+        "preserve_paths": [
+          "game/",
+          "coldfear_env.txt",
+          "mods.txt",
+          "brightness.txt",
+          "coldfear_log.txt"
+        ],
+        "steps_pt_br": [
+          "Baixe o arquivo coldfear.nro e copie para sdmc:/switch/coldfear/coldfear.nro.",
+          "Copie os arquivos originais do seu disco de Cold Fear (Xbox NTSC-U, Title ID 0x5553004B) para sdmc:/switch/coldfear/game/ (incluindo default.xbe, bigfile.bin e pasta data/).",
+          "Abra pelo Title Takeover (segure R ao iniciar qualquer jogo instalado) para liberar toda a memória RAM."
+        ]
+      },
+      "original_game_files": {
+        "required": true,
+        "explanation_pt_br": "O jogo comercial não está incluído. É necessário fornecer os arquivos originais da versão NTSC-U (EUA) de Cold Fear para Xbox (Title ID 0x5553004B / US-075).",
+        "target_directory": "sdmc:/switch/coldfear/game",
+        "required_files": [
+          {
+            "relative_path": "default.xbe",
+            "description": "Executável original NTSC-U (3.624.960 bytes)",
+            "expected_size_bytes": 3624960,
+            "sha256": "7371e422ecd0ac5c95ebaa343a6a9c3d504f2f261a53ed8acf212f258ab377ef",
+            "optional": false
+          },
+          {
+            "relative_path": "bigfile.bin",
+            "description": "Arquivo principal de pacotes de dados do disco original",
+            "optional": false
+          },
+          {
+            "relative_path": "data/",
+            "description": "Diretório data/ completo do disco original",
+            "optional": false
+          }
+        ]
+      }
+    }
+  ]
 }
