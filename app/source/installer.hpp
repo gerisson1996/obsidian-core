@@ -11,12 +11,11 @@ public:
     static bool ensureDirectoryExists(const std::string& dir_path);
     static bool isPathSafe(const std::string& base_dir, const std::string& target_path);
 
-    // Extrai um arquivo .zip completo para uma pasta base (ex: sdmc:/switch/)
     static bool extractZip(const std::string& zip_path, 
                            const std::string& target_base_dir, 
+                           const std::string& strip_prefix,
                            std::string& err_msg);
 
-    // Instalação inteligente: suporta pacote .zip completo (jogo + nro) ou binário .nro avulso
     static bool installPort(const PortItem& port, 
                             DownloadProgressCallback progress_cb, 
                             bool* cancel_flag, 

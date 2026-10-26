@@ -116,6 +116,8 @@ bool Catalog::parse(const std::string& json_content, std::string& err_msg) {
                         extra.name = ed["name"].as_string();
                         extra.download_url = ed["download_url"].as_string();
                         extra.target_path = ed["target_path"].as_string();
+                        extra.archive_type = ed["archive_type"].as_string("file");
+                        extra.strip_prefix = ed["strip_prefix"].as_string("");
                         extra.size_bytes = ed["size_bytes"].as_int64(0);
                         extra.sha256 = ed["sha256"].as_string();
                         item.extra_downloads.push_back(extra);

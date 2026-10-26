@@ -50,7 +50,10 @@ static std::string toLower(std::string s) {
     return s;
 }
 
-bool Installer::extractZip(const std::string& zip_path, const std::string& target_base_dir, std::string& err_msg) {
+bool Installer::extractZip(const std::string& zip_path, 
+                           const std::string& target_base_dir, 
+                           const std::string& strip_prefix,
+                           std::string& err_msg) {
     unzFile uf = unzOpen64(zip_path.c_str());
     if (!uf) {
         err_msg = "Falha ao abrir pacote compactado .zip.";
@@ -69,7 +72,7 @@ bool Installer::extractZip(const std::string& zip_path, const std::string& targe
 
     ensureDirectoryExists(base);
 
-    const size_t BUFFER_SIZE = 64 * 1024;
+    const size_t BUFFER_SIZE = 128 * 1024; // Buffer maior de 128KB para descompressão rápida no Switch
     std::vector<char> buffer(BUFFER_SIZE);
 
     for (uLong i = 0; i < gi.number_entry; i++) {
@@ -83,9 +86,26 @@ bool Installer::extractZip(const std::string& zip_path, const std::string& targe
         }
 
         std::string entry_name = filename_inzip;
+
+        // Remove o prefixo da pasta se solicitado (ex: "Black PT-BR/")
+        if (!strip_prefix.empty()) {
+            if (entry_name.compare(0, strip_prefix.size(), strip_prefix) == 0) {
+                entry_name = entry_name.substr(strip_prefix.size());
+            } else if (entry_name == strip_prefix || entry_name == strip_prefix.substr(0, strip_prefix.size() - 1)) {
+                // Entrada do próprio diretório raiz, pula
+                if ((i + 1) < gi.number_entry) unzGoToNextFile(uf);
+                continue;
+            }
+        }
+
+        if (entry_name.empty()) {
+            if ((i + 1) < gi.number_entry) unzGoToNextFile(uf);
+            continue;
+        }
+
         if (!isPathSafe(base, entry_name)) {
             unzClose(uf);
-            err_msg = "Caminho inseguro detectado dentro do arquivo compactado.";
+            err_msg = "Caminho inseguro detectado dentro do arquivo compactado: " + entry_name;
             return false;
         }
 
@@ -113,6 +133,9 @@ bool Installer::extractZip(const std::string& zip_path, const std::string& targe
                 return false;
             }
 
+            // Buffer de 512 KB em arquivo para gravação rápida no SD
+            setvbuf(out_file, NULL, _IOFBF, 512 * 1024);
+
             int bytes_read = 0;
             do {
                 bytes_read = unzReadCurrentFile(uf, buffer.data(), BUFFER_SIZE);
@@ -120,7 +143,7 @@ bool Installer::extractZip(const std::string& zip_path, const std::string& targe
                     fclose(out_file);
                     unzCloseCurrentFile(uf);
                     unzClose(uf);
-                    err_msg = "Erro de leitura nos dados compactados de: " + entry_name;
+                    err_msg = "Erro de leitura nos dados de: " + entry_name;
                     return false;
                 }
                 if (bytes_read > 0) {
@@ -153,7 +176,6 @@ static bool downloadAndVerify(const std::string& url,
                              std::string& err_msg) {
     std::string temp_path = final_dest_path + ".tmp";
     
-    // Garante que a pasta pai exista
     size_t last_slash = final_dest_path.find_last_of('/');
     if (last_slash != std::string::npos) {
         Installer::ensureDirectoryExists(final_dest_path.substr(0, last_slash));
@@ -192,7 +214,7 @@ bool Installer::installPort(const PortItem& port,
         return false;
     }
 
-    uint64_t total_needed = port.get_total_download_size() + 20 * 1024 * 1024;
+    uint64_t total_needed = port.get_total_download_size() + 200 * 1024 * 1024;
     uint64_t free_bytes = 0;
     if (!checkFreeSpace(port.installation.install_dir, total_needed, free_bytes)) {
         status_msg = "Espaço insuficiente no cartão MicroSD!\nNecessário: " + 
@@ -204,7 +226,7 @@ bool Installer::installPort(const PortItem& port,
     ensureDirectoryExists(port.installation.install_dir);
 
     // 1. Baixar o executável principal (.nro)
-    status_msg = "Baixando executável " + port.package.file_name + "...";
+    status_msg = "Baixando executavel " + port.package.file_name + "...";
     std::string err;
     if (!downloadAndVerify(port.package.download_url, 
                            port.installation.entry_nro, 
@@ -216,7 +238,7 @@ bool Installer::installPort(const PortItem& port,
         return false;
     }
 
-    // 2. Baixar arquivos adicionais do Google Drive ou do catálogo diretamente para as pastas corretas
+    // 2. Baixar arquivos adicionais / pacotes do jogo
     for (size_t i = 0; i < port.extra_downloads.size(); i++) {
         if (cancel_flag && *cancel_flag) {
             status_msg = "Download cancelado.";
@@ -226,18 +248,44 @@ bool Installer::installPort(const PortItem& port,
         const auto& extra = port.extra_downloads[i];
         status_msg = "Baixando " + extra.name + " (" + std::to_string(i + 1) + "/" + std::to_string(port.extra_downloads.size()) + ")...";
 
-        if (!downloadAndVerify(extra.download_url, 
-                               extra.target_path, 
-                               extra.sha256, 
-                               progress_cb, 
-                               cancel_flag, 
-                               err)) {
-            status_msg = "Erro ao baixar " + extra.name + ":\n" + err;
-            return false;
+        if (extra.archive_type == "zip") {
+            // Baixa arquivo compactado e extrai no destino
+            std::string temp_zip = port.installation.install_dir + "/download_data.zip";
+            if (!downloadAndVerify(extra.download_url, 
+                                   temp_zip, 
+                                   extra.sha256, 
+                                   progress_cb, 
+                                   cancel_flag, 
+                                   err)) {
+                remove(temp_zip.c_str());
+                status_msg = "Erro ao baixar " + extra.name + ":\n" + err;
+                return false;
+            }
+
+            status_msg = "Extraindo " + extra.name + " e criando pastas...";
+            std::string extract_err;
+            if (!extractZip(temp_zip, extra.target_path, extra.strip_prefix, extract_err)) {
+                remove(temp_zip.c_str());
+                status_msg = "Erro ao extrair pacote do jogo:\n" + extract_err;
+                return false;
+            }
+
+            remove(temp_zip.c_str());
+        } else {
+            // Baixa arquivo individual direto para a pasta final
+            if (!downloadAndVerify(extra.download_url, 
+                                   extra.target_path, 
+                                   extra.sha256, 
+                                   progress_cb, 
+                                   cancel_flag, 
+                                   err)) {
+                status_msg = "Erro ao baixar " + extra.name + ":\n" + err;
+                return false;
+            }
         }
     }
 
-    status_msg = "Instalação concluída com sucesso!\nTodos os arquivos do jogo foram colocados nas pastas corretas.";
+    status_msg = "Jogo instalado com sucesso!\nTodos os arquivos foram colocados nas pastas corretas.";
     return true;
 }
 

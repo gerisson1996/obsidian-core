@@ -36,6 +36,8 @@ struct ExtraDownload {
     std::string name;
     std::string download_url;
     std::string target_path;
+    std::string archive_type; // "file" ou "zip"
+    std::string strip_prefix; // ex: "Black PT-BR/"
     uint64_t size_bytes = 0;
     std::string sha256;
 };
