@@ -177,12 +177,16 @@ void UI::startInstallCurrentPort() {
 
     const PortItem& port = m_catalog.ports[m_selected_index];
     m_state = VIEW_DOWNLOADING;
+    m_stage = STAGE_DOWNLOADING;
     m_download_in_progress = true;
     m_download_cancel_req = false;
     m_dl_current = 0;
     m_dl_total = port.get_total_download_size();
     m_dl_speed = 0.0;
     m_dl_status_text = "Iniciando download do jogo...";
+    m_extract_current = 0;
+    m_extract_total = 0;
+    m_extract_filename = "";
 
     render();
 
@@ -191,6 +195,7 @@ void UI::startInstallCurrentPort() {
 
     bool success = Installer::installPort(port, 
         [this, &last_render_tick](uint64_t cur, uint64_t total, double speed) {
+            m_stage = STAGE_DOWNLOADING;
             m_dl_current = cur;
             if (total > 0) m_dl_total = total;
             m_dl_speed = speed;
@@ -207,7 +212,19 @@ void UI::startInstallCurrentPort() {
                     }
                 }
             }
-        }, 
+        },
+        [this, &last_render_tick](const std::string& filename, int cur, int tot) {
+            m_stage = STAGE_EXTRACTING;
+            m_extract_current = cur;
+            m_extract_total = tot;
+            m_extract_filename = filename;
+
+            Uint32 now = SDL_GetTicks();
+            if (now - last_render_tick >= 50 || cur == tot) {
+                last_render_tick = now;
+                render();
+            }
+        },
         &m_download_cancel_req, 
         result_msg);
 
@@ -490,42 +507,88 @@ void UI::renderDetails() {
 }
 
 void UI::renderDownloading() {
-    renderHeader("NX PORT HUB", "Download em Alta Velocidade");
+    if (m_stage == STAGE_EXTRACTING) {
+        renderHeader("NX PORT HUB", "Descompactando e Instalando Arquivos");
 
-    SDL_Rect main_panel = { 100, 150, 1080, 420 };
-    SDL_SetRenderDrawColor(m_renderer, COLOR_PANEL.r, COLOR_PANEL.g, COLOR_PANEL.b, 255);
-    SDL_RenderFillRect(m_renderer, &main_panel);
+        SDL_Rect main_panel = { 100, 150, 1080, 420 };
+        SDL_SetRenderDrawColor(m_renderer, COLOR_PANEL.r, COLOR_PANEL.g, COLOR_PANEL.b, 255);
+        SDL_RenderFillRect(m_renderer, &main_panel);
+        SDL_SetRenderDrawColor(m_renderer, 0x2A, 0x34, 0x46, 255);
+        SDL_RenderDrawRect(m_renderer, &main_panel);
 
-    FontRenderer::drawText(m_renderer, 140, 190, m_dl_status_text, COLOR_ACCENT, 2);
+        FontRenderer::drawText(m_renderer, 140, 185, "Descompactando arquivos e configurando pastas...", COLOR_ACCENT, 2);
 
-    // Barra de progresso
-    SDL_Rect bar_bg = { 140, 240, 1000, 36 };
-    SDL_SetRenderDrawColor(m_renderer, 0x10, 0x14, 0x1D, 255);
-    SDL_RenderFillRect(m_renderer, &bar_bg);
+        // Barra de progresso da extração
+        SDL_Rect bar_bg = { 140, 230, 1000, 36 };
+        SDL_SetRenderDrawColor(m_renderer, 0x10, 0x14, 0x1D, 255);
+        SDL_RenderFillRect(m_renderer, &bar_bg);
 
-    double percent = 0.0;
-    if (m_dl_total > 0) {
-        percent = (double)m_dl_current / (double)m_dl_total;
-        if (percent > 1.0) percent = 1.0;
+        double percent = 0.0;
+        if (m_extract_total > 0) {
+            percent = (double)m_extract_current / (double)m_extract_total;
+            if (percent > 1.0) percent = 1.0;
+        }
+
+        SDL_Rect bar_fill = { 140, 230, (int)(1000 * percent), 36 };
+        SDL_SetRenderDrawColor(m_renderer, COLOR_GREEN.r, COLOR_GREEN.g, COLOR_GREEN.b, 255);
+        SDL_RenderFillRect(m_renderer, &bar_fill);
+
+        // Detalhes dos arquivos
+        int pct_int = (int)(percent * 100.0);
+        std::ostringstream ss_info;
+        ss_info << pct_int << "% concluido (" << m_extract_current << " de " << m_extract_total << " arquivos extraidos)";
+        FontRenderer::drawText(m_renderer, 140, 285, ss_info.str(), COLOR_TEXT, 2);
+
+        // Nome do arquivo atual sendo gravado
+        std::string fname_display = m_extract_filename;
+        if (fname_display.size() > 65) {
+            fname_display = "..." + fname_display.substr(fname_display.size() - 62);
+        }
+        FontRenderer::drawText(m_renderer, 140, 325, "Gravando: " + fname_display, COLOR_MUTED, 2);
+
+        FontRenderer::drawText(m_renderer, 140, 390, "[!] Gravando no cartao MicroSD. Nao desligue o console.", COLOR_WARN, 2);
+
+        renderFooter("Aguarde a finalizacao da gravacao...");
+    } else {
+        renderHeader("NX PORT HUB", "Download em Alta Velocidade");
+
+        SDL_Rect main_panel = { 100, 150, 1080, 420 };
+        SDL_SetRenderDrawColor(m_renderer, COLOR_PANEL.r, COLOR_PANEL.g, COLOR_PANEL.b, 255);
+        SDL_RenderFillRect(m_renderer, &main_panel);
+        SDL_SetRenderDrawColor(m_renderer, 0x2A, 0x34, 0x46, 255);
+        SDL_RenderDrawRect(m_renderer, &main_panel);
+
+        FontRenderer::drawText(m_renderer, 140, 185, m_dl_status_text, COLOR_ACCENT, 2);
+
+        // Barra de progresso
+        SDL_Rect bar_bg = { 140, 230, 1000, 36 };
+        SDL_SetRenderDrawColor(m_renderer, 0x10, 0x14, 0x1D, 255);
+        SDL_RenderFillRect(m_renderer, &bar_bg);
+
+        double percent = 0.0;
+        if (m_dl_total > 0) {
+            percent = (double)m_dl_current / (double)m_dl_total;
+            if (percent > 1.0) percent = 1.0;
+        }
+
+        SDL_Rect bar_fill = { 140, 230, (int)(1000 * percent), 36 };
+        SDL_SetRenderDrawColor(m_renderer, COLOR_ACCENT.r, COLOR_ACCENT.g, COLOR_ACCENT.b, 255);
+        SDL_RenderFillRect(m_renderer, &bar_fill);
+
+        // Texto de porcentagem e velocidade
+        int pct_int = (int)(percent * 100.0);
+        double cur_mb = (double)m_dl_current / (1024.0 * 1024.0);
+        double tot_mb = (double)m_dl_total / (1024.0 * 1024.0);
+        double spd_mb = m_dl_speed / (1024.0 * 1024.0);
+
+        std::ostringstream ss;
+        ss << pct_int << "% (" << std::fixed << std::setprecision(1) << cur_mb << " MB / " << tot_mb << " MB) • Velocidade: " << spd_mb << " MB/s";
+        FontRenderer::drawText(m_renderer, 140, 285, ss.str(), COLOR_TEXT, 2);
+
+        FontRenderer::drawText(m_renderer, 140, 390, "Modo CPU Boost ativo (1.785 GHz). Nao remova o cartao MicroSD.", COLOR_WARN, 2);
+
+        renderFooter("(B) Cancelar Download");
     }
-
-    SDL_Rect bar_fill = { 140, 240, (int)(1000 * percent), 36 };
-    SDL_SetRenderDrawColor(m_renderer, COLOR_ACCENT.r, COLOR_ACCENT.g, COLOR_ACCENT.b, 255);
-    SDL_RenderFillRect(m_renderer, &bar_fill);
-
-    // Texto de porcentagem e velocidade
-    int pct_int = (int)(percent * 100.0);
-    double cur_mb = (double)m_dl_current / (1024.0 * 1024.0);
-    double tot_mb = (double)m_dl_total / (1024.0 * 1024.0);
-    double spd_mb = m_dl_speed / (1024.0 * 1024.0);
-
-    std::ostringstream ss;
-    ss << pct_int << "% (" << std::fixed << std::setprecision(1) << cur_mb << " MB / " << tot_mb << " MB) • Velocidade: " << spd_mb << " MB/s";
-    FontRenderer::drawText(m_renderer, 140, 296, ss.str(), COLOR_TEXT, 2);
-
-    FontRenderer::drawText(m_renderer, 140, 380, "Modo CPU Boost ativo (1.785 GHz). Não remova o cartão MicroSD.", COLOR_WARN, 2);
-
-    renderFooter("(B) Cancelar Download");
 }
 
 void UI::renderSettings() {

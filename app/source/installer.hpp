@@ -4,6 +4,9 @@
 #include "catalog.hpp"
 #include "network.hpp"
 #include <string>
+#include <functional>
+
+typedef std::function<void(const std::string& current_file, int current_item, int total_items)> ExtractProgressCallback;
 
 class Installer {
 public:
@@ -14,10 +17,12 @@ public:
     static bool extractZip(const std::string& zip_path, 
                            const std::string& target_base_dir, 
                            const std::string& strip_prefix,
+                           ExtractProgressCallback extract_cb,
                            std::string& err_msg);
 
     static bool installPort(const PortItem& port, 
                             DownloadProgressCallback progress_cb, 
+                            ExtractProgressCallback extract_cb,
                             bool* cancel_flag, 
                             std::string& status_msg);
 

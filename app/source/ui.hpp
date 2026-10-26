@@ -15,6 +15,11 @@ enum ViewState {
     VIEW_MESSAGE
 };
 
+enum InstallStage {
+    STAGE_DOWNLOADING,
+    STAGE_EXTRACTING
+};
+
 class UI {
 public:
     UI();
@@ -42,13 +47,19 @@ private:
     int m_scroll_offset = 0;
     bool m_exit = false;
 
-    // Estado do download
+    // Estado do download e extração
+    InstallStage m_stage = STAGE_DOWNLOADING;
     bool m_download_in_progress = false;
     bool m_download_cancel_req = false;
     uint64_t m_dl_current = 0;
     uint64_t m_dl_total = 0;
     double m_dl_speed = 0.0;
     std::string m_dl_status_text;
+
+    // Estado da extração
+    int m_extract_current = 0;
+    int m_extract_total = 0;
+    std::string m_extract_filename;
 
     // Modal de mensagem
     std::string m_modal_title;
