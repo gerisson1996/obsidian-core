@@ -1,0 +1,16 @@
+# Build artifacts
+app/build/
+app/*.elf
+app/*.nacp
+app/*.map
+app/*.o
+app/*.d
+
+# Ignore compiled binary in git source tracking (built via CI/Releases)
+app/nx-port-hub.nro
+app/nx-port-hub.elf
+app/nx-port-hub.nacp
+
+# OS generated files
+.DS_Store
+Thumbs.db

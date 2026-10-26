@@ -3,7 +3,7 @@
   "project": "NX Port Hub",
   "catalog_id": "obsidian-core-main",
   "catalog_url": "https://gerisson1996.github.io/obsidian-core/catalog/ports.json",
-  "updated_at": "2026-10-25",
+  "updated_at": "2026-10-26",
   "categories": [
     {
       "id": "fps",
@@ -63,12 +63,12 @@
       "package": {
         "provider": "github_releases",
         "releases_page_url": "https://github.com/gerisson1996/BLACK-NX-PORT/releases",
-        "download_url": "",
+        "download_url": "https://github.com/gerisson1996/BLACK-NX-PORT/releases/download/v0.1.0/black.nro",
         "file_name": "black.nro",
         "archive_type": "nro",
-        "download_size_bytes": 0,
-        "installed_size_bytes": 0,
-        "sha256": ""
+        "download_size_bytes": 29837959,
+        "installed_size_bytes": 29837959,
+        "sha256": "713feb7df693f95b3a846038e9f2495dc8d9d07b5ecfdf52b6cb657ab35c436a"
       },
       "installation": {
         "profile": "xbox_recomp_nro",
@@ -123,12 +123,12 @@
       "package": {
         "provider": "github_releases",
         "releases_page_url": "https://github.com/gerisson1996/COLD-FEAR-NX-PORT/releases/tag/v0.0.3",
-        "download_url": "",
+        "download_url": "https://github.com/gerisson1996/COLD-FEAR-NX-PORT/releases/download/v0.0.3/coldfear.nro",
         "file_name": "coldfear.nro",
         "archive_type": "nro",
-        "download_size_bytes": 0,
-        "installed_size_bytes": 0,
-        "sha256": ""
+        "download_size_bytes": 95371889,
+        "installed_size_bytes": 95371889,
+        "sha256": "866d068c7eecbbbbc92976a14a46308f93e40b3f910ba9b2b0ec988ebf56080b"
       },
       "installation": {
         "profile": "xbox_recomp_nro",
