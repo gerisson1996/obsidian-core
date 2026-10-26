@@ -51,6 +51,10 @@ bool UI::init() {
 }
 
 void UI::shutdown() {
+    if (m_worker_thread.joinable()) {
+        m_download_cancel_req = true;
+        m_worker_thread.join();
+    }
     m_covers.cleanup();
     if (m_renderer) {
         SDL_DestroyRenderer(m_renderer);
@@ -72,11 +76,43 @@ void UI::setCatalog(const Catalog& cat) {
 void UI::showModal(const std::string& title, const std::string& message) {
     m_modal_title = title;
     m_modal_message = message;
-    m_prev_state = m_state;
+    if (m_state == VIEW_DOWNLOADING) {
+        m_prev_state = VIEW_CATALOG;
+    } else {
+        m_prev_state = m_state;
+    }
     m_state = VIEW_MESSAGE;
 }
 
 void UI::update() {
+    // 1. Monitora o término da thread de instalação assíncrona
+    if (m_download_in_progress && m_install_finished) {
+        if (m_worker_thread.joinable()) {
+            m_worker_thread.join();
+        }
+        m_download_in_progress = false;
+        m_install_finished = false;
+        m_stage = STAGE_DOWNLOADING;
+
+        // Limpa botões e eventos pressionados durante o download para não fechar a modal por engano
+        SDL_Event ev;
+        while (SDL_PollEvent(&ev)) {}
+
+        // Garante o retorno à galeria de jogos
+        m_state = VIEW_CATALOG;
+        m_prev_state = VIEW_CATALOG;
+
+        if (m_download_cancel_req) {
+            showModal("Cancelado", "O download foi interrompido.");
+        } else if (m_install_success) {
+            showModal("Instalação Concluída!", m_install_result_msg);
+        } else {
+            showModal("Erro na Instalação", m_install_result_msg);
+        }
+        return;
+    }
+
+    // 2. Poll normal de eventos
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         if (event.type == SDL_QUIT) {
@@ -105,7 +141,11 @@ void UI::update() {
 void UI::onButtonDown(int button) {
     if (m_state == VIEW_MESSAGE) {
         if (button == 0 || button == 1) {
-            m_state = m_prev_state;
+            if (m_prev_state == VIEW_DOWNLOADING || m_prev_state == VIEW_MESSAGE) {
+                m_state = VIEW_CATALOG;
+            } else {
+                m_state = m_prev_state;
+            }
         }
         return;
     }
@@ -174,69 +214,57 @@ void UI::onButtonDown(int button) {
 
 void UI::startInstallCurrentPort() {
     if (m_catalog.ports.empty() || m_selected_index >= (int)m_catalog.ports.size()) return;
+    if (m_download_in_progress) return;
 
-    const PortItem& port = m_catalog.ports[m_selected_index];
+    if (m_worker_thread.joinable()) {
+        m_worker_thread.join();
+    }
+
+    const PortItem port = m_catalog.ports[m_selected_index];
     m_state = VIEW_DOWNLOADING;
     m_stage = STAGE_DOWNLOADING;
     m_download_in_progress = true;
     m_download_cancel_req = false;
+    m_install_finished = false;
+    m_install_success = false;
+    m_install_result_msg.clear();
+
     m_dl_current = 0;
     m_dl_total = port.get_total_download_size();
     m_dl_speed = 0.0;
-    m_dl_status_text = "Iniciando download do jogo...";
+    {
+        std::lock_guard<std::mutex> lock(m_status_mutex);
+        m_dl_status_text = "Iniciando download em alta velocidade...";
+        m_extract_filename.clear();
+    }
     m_extract_current = 0;
     m_extract_total = 0;
-    m_extract_filename = "";
 
-    render();
-
-    std::string result_msg;
-    Uint32 last_render_tick = SDL_GetTicks();
-
-    bool success = Installer::installPort(port, 
-        [this, &last_render_tick](uint64_t cur, uint64_t total, double speed) {
-            m_stage = STAGE_DOWNLOADING;
-            m_dl_current = cur;
-            if (total > 0) m_dl_total = total;
-            m_dl_speed = speed;
-
-            Uint32 now = SDL_GetTicks();
-            if (now - last_render_tick >= 80 || cur == total) {
-                last_render_tick = now;
-                render();
-
-                SDL_Event ev;
-                while (SDL_PollEvent(&ev)) {
-                    if (ev.type == SDL_JOYBUTTONDOWN && ev.jbutton.button == 1) {
-                        m_download_cancel_req = true;
-                    }
+    m_worker_thread = std::thread([this, port]() {
+        std::string result_msg;
+        bool success = Installer::installPort(port, 
+            [this](uint64_t cur, uint64_t total, double speed) {
+                m_stage = STAGE_DOWNLOADING;
+                m_dl_current = cur;
+                if (total > 0) m_dl_total = total;
+                m_dl_speed = speed;
+            },
+            [this](const std::string& filename, int cur, int tot) {
+                m_stage = STAGE_EXTRACTING;
+                m_extract_current = cur;
+                m_extract_total = tot;
+                {
+                    std::lock_guard<std::mutex> lock(m_status_mutex);
+                    m_extract_filename = filename;
                 }
-            }
-        },
-        [this, &last_render_tick](const std::string& filename, int cur, int tot) {
-            m_stage = STAGE_EXTRACTING;
-            m_extract_current = cur;
-            m_extract_total = tot;
-            m_extract_filename = filename;
+            },
+            (bool*)&m_download_cancel_req, 
+            result_msg);
 
-            Uint32 now = SDL_GetTicks();
-            if (now - last_render_tick >= 50 || cur == tot) {
-                last_render_tick = now;
-                render();
-            }
-        },
-        &m_download_cancel_req, 
-        result_msg);
-
-    m_download_in_progress = false;
-
-    if (m_download_cancel_req) {
-        showModal("Cancelado", "O download foi interrompido.");
-    } else if (success) {
-        showModal("Instalação Concluída!", result_msg);
-    } else {
-        showModal("Erro na Instalação", result_msg);
-    }
+        m_install_success = success;
+        m_install_result_msg = result_msg;
+        m_install_finished = true;
+    });
 }
 
 void UI::renderHeader(const std::string& title, const std::string& subtitle) {
@@ -507,6 +535,14 @@ void UI::renderDetails() {
 }
 
 void UI::renderDownloading() {
+    std::string fname_display;
+    std::string dl_status;
+    {
+        std::lock_guard<std::mutex> lock(m_status_mutex);
+        fname_display = m_extract_filename;
+        dl_status = m_dl_status_text;
+    }
+
     if (m_stage == STAGE_EXTRACTING) {
         renderHeader("NX PORT HUB", "Descompactando e Instalando Arquivos");
 
@@ -523,9 +559,11 @@ void UI::renderDownloading() {
         SDL_SetRenderDrawColor(m_renderer, 0x10, 0x14, 0x1D, 255);
         SDL_RenderFillRect(m_renderer, &bar_bg);
 
+        int cur_ext = m_extract_current;
+        int tot_ext = m_extract_total;
         double percent = 0.0;
-        if (m_extract_total > 0) {
-            percent = (double)m_extract_current / (double)m_extract_total;
+        if (tot_ext > 0) {
+            percent = (double)cur_ext / (double)tot_ext;
             if (percent > 1.0) percent = 1.0;
         }
 
@@ -536,11 +574,10 @@ void UI::renderDownloading() {
         // Detalhes dos arquivos
         int pct_int = (int)(percent * 100.0);
         std::ostringstream ss_info;
-        ss_info << pct_int << "% concluido (" << m_extract_current << " de " << m_extract_total << " arquivos extraidos)";
+        ss_info << pct_int << "% concluido (" << cur_ext << " de " << tot_ext << " arquivos extraidos)";
         FontRenderer::drawText(m_renderer, 140, 285, ss_info.str(), COLOR_TEXT, 2);
 
         // Nome do arquivo atual sendo gravado
-        std::string fname_display = m_extract_filename;
         if (fname_display.size() > 65) {
             fname_display = "..." + fname_display.substr(fname_display.size() - 62);
         }
@@ -558,16 +595,20 @@ void UI::renderDownloading() {
         SDL_SetRenderDrawColor(m_renderer, 0x2A, 0x34, 0x46, 255);
         SDL_RenderDrawRect(m_renderer, &main_panel);
 
-        FontRenderer::drawText(m_renderer, 140, 185, m_dl_status_text, COLOR_ACCENT, 2);
+        FontRenderer::drawText(m_renderer, 140, 185, dl_status, COLOR_ACCENT, 2);
 
         // Barra de progresso
         SDL_Rect bar_bg = { 140, 230, 1000, 36 };
         SDL_SetRenderDrawColor(m_renderer, 0x10, 0x14, 0x1D, 255);
         SDL_RenderFillRect(m_renderer, &bar_bg);
 
+        uint64_t cur_dl = m_dl_current;
+        uint64_t tot_dl = m_dl_total;
+        double speed_dl = m_dl_speed;
+
         double percent = 0.0;
-        if (m_dl_total > 0) {
-            percent = (double)m_dl_current / (double)m_dl_total;
+        if (tot_dl > 0) {
+            percent = (double)cur_dl / (double)tot_dl;
             if (percent > 1.0) percent = 1.0;
         }
 
@@ -577,9 +618,9 @@ void UI::renderDownloading() {
 
         // Texto de porcentagem e velocidade
         int pct_int = (int)(percent * 100.0);
-        double cur_mb = (double)m_dl_current / (1024.0 * 1024.0);
-        double tot_mb = (double)m_dl_total / (1024.0 * 1024.0);
-        double spd_mb = m_dl_speed / (1024.0 * 1024.0);
+        double cur_mb = (double)cur_dl / (1024.0 * 1024.0);
+        double tot_mb = (double)tot_dl / (1024.0 * 1024.0);
+        double spd_mb = speed_dl / (1024.0 * 1024.0);
 
         std::ostringstream ss;
         ss << pct_int << "% (" << std::fixed << std::setprecision(1) << cur_mb << " MB / " << tot_mb << " MB) • Velocidade: " << spd_mb << " MB/s";

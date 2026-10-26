@@ -54,6 +54,7 @@ bool Installer::extractZip(const std::string& zip_path,
                            const std::string& target_base_dir, 
                            const std::string& strip_prefix,
                            ExtractProgressCallback extract_cb,
+                           bool* cancel_flag,
                            std::string& err_msg) {
     unzFile uf = unzOpen64(zip_path.c_str());
     if (!uf) {
@@ -75,8 +76,15 @@ bool Installer::extractZip(const std::string& zip_path,
 
     const size_t BUFFER_SIZE = 128 * 1024;
     std::vector<char> buffer(BUFFER_SIZE);
+    std::vector<char> file_write_buf(128 * 1024);
 
     for (uLong i = 0; i < gi.number_entry; i++) {
+        if (cancel_flag && *cancel_flag) {
+            unzClose(uf);
+            err_msg = "Extração cancelada pelo usuário.";
+            return false;
+        }
+
         unz_file_info64 file_info;
         char filename_inzip[512];
 
@@ -138,7 +146,7 @@ bool Installer::extractZip(const std::string& zip_path,
                 return false;
             }
 
-            setvbuf(out_file, NULL, _IOFBF, 512 * 1024);
+            setvbuf(out_file, file_write_buf.data(), _IOFBF, file_write_buf.size());
 
             int bytes_read = 0;
             do {
@@ -166,6 +174,10 @@ bool Installer::extractZip(const std::string& zip_path,
                 return false;
             }
         }
+    }
+
+    if (extract_cb) {
+        extract_cb("Finalizando instalação e limpando...", (int)gi.number_entry, (int)gi.number_entry);
     }
 
     unzClose(uf);
@@ -268,7 +280,7 @@ bool Installer::installPort(const PortItem& port,
 
             status_msg = "Descompactando arquivos e configurando pastas...";
             std::string extract_err;
-            if (!extractZip(temp_zip, extra.target_path, extra.strip_prefix, extract_cb, extract_err)) {
+            if (!extractZip(temp_zip, extra.target_path, extra.strip_prefix, extract_cb, cancel_flag, extract_err)) {
                 remove(temp_zip.c_str());
                 status_msg = "Erro ao extrair pacote do jogo:\n" + extract_err;
                 return false;

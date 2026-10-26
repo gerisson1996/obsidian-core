@@ -14,17 +14,17 @@ bool Network::initialize() {
     if (s_initialized) return true;
 
 #ifdef __SWITCH__
-    // Configuração de alto desempenho para a camada BSD/Sockets do Switch (TCP Window 8 MB)
+    // Configuração oficial de alto desempenho BSD/Sockets usando bsd:s (sistema) e buffer amplo
     SocketInitConfig sock_cfg = {
-        .tcp_tx_buf_size = 0x40000,       // 256 KB
-        .tcp_rx_buf_size = 0x100000,      // 1 MB
-        .tcp_tx_buf_max_size = 0x80000,   // 512 KB
-        .tcp_rx_buf_max_size = 0x800000,  // 8 MB de janela TCP ampla
+        .tcp_tx_buf_size = 0x80000,       // 512 KB
+        .tcp_rx_buf_size = 0x200000,      // 2 MB
+        .tcp_tx_buf_max_size = 0x400000,   // 4 MB
+        .tcp_rx_buf_max_size = 0x1000000,  // 16 MB janela TCP
         .udp_tx_buf_size = 0x2400,
         .udp_rx_buf_size = 0xA500,
-        .sb_efficiency = 4,
+        .sb_efficiency = 2,
         .num_bsd_sessions = 3,
-        .bsd_service_type = BsdServiceType_User,
+        .bsd_service_type = BsdServiceType_Auto,
     };
     Result rc = socketInitialize(&sock_cfg);
     if (R_FAILED(rc)) {
@@ -171,16 +171,21 @@ static int xferInfoCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow,
 
     auto now = std::chrono::steady_clock::now();
     std::chrono::duration<double> elapsed = now - ctx->last_time;
-    if (elapsed.count() >= 0.4) {
+    if (elapsed.count() >= 0.25) {
         double bytes_diff = static_cast<double>(dlnow - ctx->last_dl);
-        ctx->current_speed = bytes_diff / elapsed.count();
+        double inst_speed = bytes_diff / elapsed.count();
+        if (ctx->current_speed <= 0.0) {
+            ctx->current_speed = inst_speed;
+        } else {
+            // Média móvel exponencial (EMA) para estabilizar a medição de velocidade e evitar saltos
+            ctx->current_speed = (ctx->current_speed * 0.65) + (inst_speed * 0.35);
+        }
         ctx->last_dl = dlnow;
         ctx->last_time = now;
     }
 
-    // Intervalo de 60ms para UI (~16 FPS na barra de progresso) garantindo taxa máxima de recepção de rede
     std::chrono::duration<double> ui_elapsed = now - ctx->last_ui_time;
-    if (ui_elapsed.count() >= 0.06 || dlnow == dltotal) {
+    if (ui_elapsed.count() >= 0.03 || dlnow == dltotal) {
         ctx->last_ui_time = now;
         if (ctx->progress_cb) {
             ctx->progress_cb(static_cast<uint64_t>(dlnow), static_cast<uint64_t>(dltotal), ctx->current_speed);
@@ -243,8 +248,8 @@ bool Network::downloadFile(const std::string& url,
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &ctx);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
 
-    // Buffer de recepção TCP de 1 MB para estourar o limite de 5 MB/s
-    curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 1024 * 1024);
+    // Buffer de recepção de 512 KB para fluxo contínuo de alta velocidade
+    curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 512 * 1024);
     curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 1L);
     curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
     curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);

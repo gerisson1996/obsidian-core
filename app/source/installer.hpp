@@ -18,6 +18,7 @@ public:
                            const std::string& target_base_dir, 
                            const std::string& strip_prefix,
                            ExtractProgressCallback extract_cb,
+                           bool* cancel_flag,
                            std::string& err_msg);
 
     static bool installPort(const PortItem& port, 

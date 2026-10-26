@@ -4,6 +4,9 @@
 #include <SDL.h>
 #include <vector>
 #include <string>
+#include <thread>
+#include <atomic>
+#include <mutex>
 #include "catalog.hpp"
 #include "cover_loader.hpp"
 
@@ -47,18 +50,26 @@ private:
     int m_scroll_offset = 0;
     bool m_exit = false;
 
+    // Thread de instalação assíncrona de alto desempenho
+    std::thread m_worker_thread;
+    std::mutex m_status_mutex;
+
     // Estado do download e extração
-    InstallStage m_stage = STAGE_DOWNLOADING;
-    bool m_download_in_progress = false;
-    bool m_download_cancel_req = false;
-    uint64_t m_dl_current = 0;
-    uint64_t m_dl_total = 0;
-    double m_dl_speed = 0.0;
+    std::atomic<InstallStage> m_stage{STAGE_DOWNLOADING};
+    std::atomic<bool> m_download_in_progress{false};
+    std::atomic<bool> m_download_cancel_req{false};
+    std::atomic<bool> m_install_finished{false};
+    std::atomic<bool> m_install_success{false};
+    std::string m_install_result_msg;
+
+    std::atomic<uint64_t> m_dl_current{0};
+    std::atomic<uint64_t> m_dl_total{0};
+    std::atomic<double> m_dl_speed{0.0};
     std::string m_dl_status_text;
 
     // Estado da extração
-    int m_extract_current = 0;
-    int m_extract_total = 0;
+    std::atomic<int> m_extract_current{0};
+    std::atomic<int> m_extract_total{0};
     std::string m_extract_filename;
 
     // Modal de mensagem
