@@ -11,15 +11,21 @@ std::string Catalog::getDefaultCatalogUrl() {
     return "https://gerisson1996.github.io/obsidian-core/catalog/ports.json";
 }
 
+uint64_t PortItem::get_total_download_size() const {
+    uint64_t total = package.download_size_bytes;
+    for (const auto& ed : extra_downloads) {
+        total += ed.size_bytes;
+    }
+    return total;
+}
+
 bool PortItem::is_installed() const {
     if (installation.entry_nro.empty()) return false;
     return fileExists(installation.entry_nro);
 }
 
 bool PortItem::is_update_available() const {
-    // Se não estiver instalado, não é uma "atualização"
     if (!is_installed()) return false;
-    // Futura verificação de versão instalada vs versão do catálogo
     return false;
 }
 
@@ -101,6 +107,21 @@ bool Catalog::parse(const std::string& json_content, std::string& err_msg) {
                 item.package.installed_size_bytes = pkg["installed_size_bytes"].as_int64(0);
                 item.package.sha256 = pkg["sha256"].as_string();
 
+                // Arquivos adicionais do Google Drive ou da nuvem
+                const auto& extras = p["extra_downloads"];
+                if (extras.is_array()) {
+                    for (size_t e = 0; e < extras.arr_val.size(); e++) {
+                        const auto& ed = extras[e];
+                        ExtraDownload extra;
+                        extra.name = ed["name"].as_string();
+                        extra.download_url = ed["download_url"].as_string();
+                        extra.target_path = ed["target_path"].as_string();
+                        extra.size_bytes = ed["size_bytes"].as_int64(0);
+                        extra.sha256 = ed["sha256"].as_string();
+                        item.extra_downloads.push_back(extra);
+                    }
+                }
+
                 // Instalação
                 const auto& inst = p["installation"];
                 item.installation.profile = inst["profile"].as_string("xbox_recomp_nro");
@@ -126,6 +147,7 @@ bool Catalog::parse(const std::string& json_content, std::string& err_msg) {
                 item.original_files.required = orig["required"].as_bool(false);
                 item.original_files.explanation_pt_br = orig["explanation_pt_br"].as_string();
                 item.original_files.target_directory = orig["target_directory"].as_string();
+                item.original_files.drive_folder_url = orig["drive_folder_url"].as_string();
 
                 const auto& req_files = orig["required_files"];
                 if (req_files.is_array()) {

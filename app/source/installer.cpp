@@ -91,11 +91,9 @@ bool Installer::extractZip(const std::string& zip_path, const std::string& targe
 
         std::string full_dest_path = base + entry_name;
 
-        // Se for um diretório
         if (entry_name.back() == '/') {
             ensureDirectoryExists(full_dest_path);
         } else {
-            // Garante que a pasta pai exista
             size_t last_slash = full_dest_path.find_last_of('/');
             if (last_slash != std::string::npos) {
                 ensureDirectoryExists(full_dest_path.substr(0, last_slash));
@@ -147,6 +145,44 @@ bool Installer::extractZip(const std::string& zip_path, const std::string& targe
     return true;
 }
 
+static bool downloadAndVerify(const std::string& url, 
+                             const std::string& final_dest_path, 
+                             const std::string& expected_sha256, 
+                             DownloadProgressCallback progress_cb, 
+                             bool* cancel_flag, 
+                             std::string& err_msg) {
+    std::string temp_path = final_dest_path + ".tmp";
+    
+    // Garante que a pasta pai exista
+    size_t last_slash = final_dest_path.find_last_of('/');
+    if (last_slash != std::string::npos) {
+        Installer::ensureDirectoryExists(final_dest_path.substr(0, last_slash));
+    }
+
+    if (!Network::downloadFile(url, temp_path, progress_cb, cancel_flag, err_msg)) {
+        remove(temp_path.c_str());
+        return false;
+    }
+
+    if (!expected_sha256.empty()) {
+        std::string computed = SHA256::hashFile(temp_path);
+        if (toLower(computed) != toLower(expected_sha256)) {
+            remove(temp_path.c_str());
+            err_msg = "SHA-256 incorreto no arquivo baixado.";
+            return false;
+        }
+    }
+
+    remove(final_dest_path.c_str());
+    if (rename(temp_path.c_str(), final_dest_path.c_str()) != 0) {
+        remove(temp_path.c_str());
+        err_msg = "Erro ao mover arquivo temporário para o destino final.";
+        return false;
+    }
+
+    return true;
+}
+
 bool Installer::installPort(const PortItem& port, 
                             DownloadProgressCallback progress_cb, 
                             bool* cancel_flag, 
@@ -156,74 +192,52 @@ bool Installer::installPort(const PortItem& port,
         return false;
     }
 
-    bool is_zip = (port.package.archive_type == "zip" || 
-                   port.package.download_url.find(".zip") != std::string::npos ||
-                   port.package.file_name.find(".zip") != std::string::npos);
-
-    // 1. Checagem de espaço disponível
+    uint64_t total_needed = port.get_total_download_size() + 20 * 1024 * 1024;
     uint64_t free_bytes = 0;
-    uint64_t needed = port.package.download_size_bytes > 0 ? (port.package.download_size_bytes * 2 + 50 * 1024 * 1024) : (100 * 1024 * 1024);
-    if (!checkFreeSpace(port.installation.install_dir, needed, free_bytes)) {
+    if (!checkFreeSpace(port.installation.install_dir, total_needed, free_bytes)) {
         status_msg = "Espaço insuficiente no cartão MicroSD!\nNecessário: " + 
-                     std::to_string(needed / (1024 * 1024)) + " MB, Disponível: " + 
+                     std::to_string(total_needed / (1024 * 1024)) + " MB, Disponível: " + 
                      std::to_string(free_bytes / (1024 * 1024)) + " MB.";
         return false;
     }
 
-    // 2. Garantir diretório base
     ensureDirectoryExists(port.installation.install_dir);
 
-    // 3. Download do arquivo
-    std::string temp_path;
-    if (is_zip) {
-        temp_path = port.installation.install_dir + "/bundle.zip.tmp";
-    } else {
-        temp_path = port.installation.entry_nro + ".tmp";
-    }
-
+    // 1. Baixar o executável principal (.nro)
+    status_msg = "Baixando executável " + port.package.file_name + "...";
     std::string err;
-    status_msg = "Baixando pacote em alta velocidade...";
-    if (!Network::downloadFile(port.package.download_url, temp_path, progress_cb, cancel_flag, err)) {
+    if (!downloadAndVerify(port.package.download_url, 
+                           port.installation.entry_nro, 
+                           port.package.sha256, 
+                           progress_cb, 
+                           cancel_flag, 
+                           err)) {
         status_msg = err;
-        remove(temp_path.c_str());
         return false;
     }
 
-    // 4. Verificação de integridade SHA-256 (se cadastrado)
-    if (!port.package.sha256.empty()) {
-        status_msg = "Verificando integridade dos dados...";
-        std::string computed_hash = SHA256::hashFile(temp_path);
-        if (toLower(computed_hash) != toLower(port.package.sha256)) {
-            remove(temp_path.c_str());
-            status_msg = "Falha no download: SHA-256 não confere!\nO arquivo pode estar corrompido.";
+    // 2. Baixar arquivos adicionais do Google Drive ou do catálogo diretamente para as pastas corretas
+    for (size_t i = 0; i < port.extra_downloads.size(); i++) {
+        if (cancel_flag && *cancel_flag) {
+            status_msg = "Download cancelado.";
+            return false;
+        }
+
+        const auto& extra = port.extra_downloads[i];
+        status_msg = "Baixando " + extra.name + " (" + std::to_string(i + 1) + "/" + std::to_string(port.extra_downloads.size()) + ")...";
+
+        if (!downloadAndVerify(extra.download_url, 
+                               extra.target_path, 
+                               extra.sha256, 
+                               progress_cb, 
+                               cancel_flag, 
+                               err)) {
+            status_msg = "Erro ao baixar " + extra.name + ":\n" + err;
             return false;
         }
     }
 
-    // 5. Instalação e Extração
-    if (is_zip) {
-        status_msg = "Extraindo arquivos do jogo e montando pastas...";
-        std::string extract_err;
-        // Extrai na pasta switch/ (onde os subdiretórios como switch/black/... se instalam)
-        std::string base_dir = "sdmc:/switch/";
-        if (!extractZip(temp_path, base_dir, extract_err)) {
-            remove(temp_path.c_str());
-            status_msg = "Erro ao extrair pacote: " + extract_err;
-            return false;
-        }
-        remove(temp_path.c_str());
-        status_msg = "Jogo instalado e configurado com sucesso!\nPastas e arquivos prontos para jogar.";
-    } else {
-        // Substituição atômica de .nro
-        remove(port.installation.entry_nro.c_str());
-        if (rename(temp_path.c_str(), port.installation.entry_nro.c_str()) != 0) {
-            remove(temp_path.c_str());
-            status_msg = "Erro ao mover arquivo para o destino final.";
-            return false;
-        }
-        status_msg = "Port instalado com sucesso em:\n" + port.installation.entry_nro;
-    }
-
+    status_msg = "Instalação concluída com sucesso!\nTodos os arquivos do jogo foram colocados nas pastas corretas.";
     return true;
 }
 

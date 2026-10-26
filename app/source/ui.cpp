@@ -179,7 +179,7 @@ void UI::startInstallCurrentPort() {
     m_download_in_progress = true;
     m_download_cancel_req = false;
     m_dl_current = 0;
-    m_dl_total = port.package.download_size_bytes;
+    m_dl_total = port.get_total_download_size();
     m_dl_speed = 0.0;
     m_dl_status_text = "Iniciando download...";
 

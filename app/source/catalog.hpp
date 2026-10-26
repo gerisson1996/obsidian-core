@@ -17,6 +17,7 @@ struct OriginalGameFiles {
     bool required = false;
     std::string explanation_pt_br;
     std::string target_directory;
+    std::string drive_folder_url;
     std::vector<RequiredFile> required_files;
 };
 
@@ -31,6 +32,14 @@ struct PackageInfo {
     std::string sha256;
 };
 
+struct ExtraDownload {
+    std::string name;
+    std::string download_url;
+    std::string target_path;
+    uint64_t size_bytes = 0;
+    std::string sha256;
+};
+
 struct InstallationInfo {
     std::string profile;
     std::string install_dir;
@@ -40,7 +49,7 @@ struct InstallationInfo {
 };
 
 struct CompatibilityInfo {
-    std::string status; // "jogavel", "experimental", etc.
+    std::string status;
     std::string min_hos_version;
     bool atmosphere_required = true;
     bool applet_mode_supported = false;
@@ -63,9 +72,11 @@ struct PortItem {
     std::string icon_url;
     CompatibilityInfo compatibility;
     PackageInfo package;
+    std::vector<ExtraDownload> extra_downloads;
     InstallationInfo installation;
     OriginalGameFiles original_files;
 
+    uint64_t get_total_download_size() const;
     bool is_installed() const;
     bool is_update_available() const;
     bool check_original_files_present(std::vector<std::string>& missing_files) const;

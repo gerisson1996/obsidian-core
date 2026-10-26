@@ -70,6 +70,22 @@
         "installed_size_bytes": 29837959,
         "sha256": "713feb7df693f95b3a846038e9f2495dc8d9d07b5ecfdf52b6cb657ab35c436a"
       },
+      "extra_downloads": [
+        {
+          "name": "default.xbe (Traducao PT-BR)",
+          "download_url": "https://drive.usercontent.google.com/download?id=1OBAwDDgEVvPSkaAhvrN3wNMy_9r_KtoP&export=download",
+          "target_path": "sdmc:/switch/black/game/default.xbe",
+          "size_bytes": 2813952,
+          "sha256": "67f35121ccf622e7a293c402219596fe6456ca4c3d27e6f8139e449264da30f0"
+        },
+        {
+          "name": "GlobData.bin (Textos e Fontes PT-BR)",
+          "download_url": "https://drive.usercontent.google.com/download?id=1GYRZobH5NnU3m2NrjagCRVyqdeog8xvr&export=download",
+          "target_path": "sdmc:/switch/black/game/GlobData.bin",
+          "size_bytes": 1844680,
+          "sha256": "3de792bc989fd179821315d3329f9f5a49870b09f1149f5c82e917c5edfcd219"
+        }
+      ],
       "installation": {
         "profile": "xbox_recomp_nro",
         "install_dir": "sdmc:/switch/black",
