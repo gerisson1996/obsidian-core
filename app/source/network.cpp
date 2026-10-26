@@ -14,9 +14,22 @@ bool Network::initialize() {
     if (s_initialized) return true;
 
 #ifdef __SWITCH__
-    Result rc = socketInitializeDefault();
+    // Configuração de alto desempenho para a camada BSD/Sockets do Switch (TCP Window 8 MB)
+    SocketInitConfig sock_cfg = {
+        .tcp_tx_buf_size = 0x40000,       // 256 KB
+        .tcp_rx_buf_size = 0x100000,      // 1 MB
+        .tcp_tx_buf_max_size = 0x80000,   // 512 KB
+        .tcp_rx_buf_max_size = 0x800000,  // 8 MB de janela TCP ampla
+        .udp_tx_buf_size = 0x2400,
+        .udp_rx_buf_size = 0xA500,
+        .sb_efficiency = 4,
+        .num_bsd_sessions = 3,
+        .bsd_service_type = BsdServiceType_User,
+    };
+    Result rc = socketInitialize(&sock_cfg);
     if (R_FAILED(rc)) {
-        return false;
+        rc = socketInitializeDefault();
+        if (R_FAILED(rc)) return false;
     }
 #endif
 
@@ -53,11 +66,9 @@ bool Network::is_online() {
 }
 
 std::string Network::normalizeDownloadUrl(const std::string& url) {
-    // Detecta URLs comuns do Google Drive e converte para download direto com bypass de confirmação
     if (url.find("drive.google.com") != std::string::npos || url.find("drive.usercontent.google.com") != std::string::npos) {
         std::string file_id;
         
-        // Formato /file/d/<id>/
         size_t d_pos = url.find("/d/");
         if (d_pos != std::string::npos) {
             size_t start = d_pos + 3;
@@ -66,7 +77,6 @@ std::string Network::normalizeDownloadUrl(const std::string& url) {
             if (end == std::string::npos) end = url.size();
             file_id = url.substr(start, end - start);
         } else {
-            // Formato id=<id>
             size_t id_pos = url.find("id=");
             if (id_pos != std::string::npos) {
                 size_t start = id_pos + 3;
@@ -116,6 +126,7 @@ bool Network::fetchString(const std::string& url, std::string& out_data, std::st
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
     curl_easy_setopt(curl, CURLOPT_COOKIEFILE, "");
     curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 1L);
+    curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 
     CURLcode res = curl_easy_perform(curl);
     if (res != CURLE_OK) {
@@ -155,7 +166,7 @@ static int xferInfoCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow,
     DownloadContext* ctx = static_cast<DownloadContext*>(clientp);
 
     if (ctx->cancel_flag && *(ctx->cancel_flag)) {
-        return 1; // Cancela transferência curl
+        return 1;
     }
 
     auto now = std::chrono::steady_clock::now();
@@ -167,10 +178,9 @@ static int xferInfoCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow,
         ctx->last_time = now;
     }
 
-    // Só chama o callback se passaram pelo menos 50 milissegundos (~20 FPS)
-    // para NUNCA travar a largura de banda de rede com chamadas de renderização!
+    // Intervalo de 60ms para UI (~16 FPS na barra de progresso) garantindo taxa máxima de recepção de rede
     std::chrono::duration<double> ui_elapsed = now - ctx->last_ui_time;
-    if (ui_elapsed.count() >= 0.05 || dlnow == dltotal) {
+    if (ui_elapsed.count() >= 0.06 || dlnow == dltotal) {
         ctx->last_ui_time = now;
         if (ctx->progress_cb) {
             ctx->progress_cb(static_cast<uint64_t>(dlnow), static_cast<uint64_t>(dltotal), ctx->current_speed);
@@ -190,20 +200,31 @@ bool Network::downloadFile(const std::string& url,
         return false;
     }
 
+#ifdef __SWITCH__
+    // Ativa o modo CPU Boost (1.785 GHz) do Switch para acelerar SSL e downloads pesados
+    appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad);
+#endif
+
     std::string direct_url = normalizeDownloadUrl(url);
 
     FILE* fp = fopen(dest_path.c_str(), "wb");
     if (!fp) {
+#ifdef __SWITCH__
+        appletSetCpuBoostMode(ApmCpuBoostMode_Normal);
+#endif
         err_msg = "Falha ao abrir arquivo para escrita: " + dest_path;
         return false;
     }
 
-    // Buffer de 1 MB para escritas contínuas rápidas no MicroSD (evita gargalo de I/O)
-    setvbuf(fp, NULL, _IOFBF, 1024 * 1024);
+    // Buffer de 2 MB de escrita contínua para máxima velocidade no MicroSD
+    setvbuf(fp, NULL, _IOFBF, 2 * 1024 * 1024);
 
     CURL* curl = curl_easy_init();
     if (!curl) {
         fclose(fp);
+#ifdef __SWITCH__
+        appletSetCpuBoostMode(ApmCpuBoostMode_Normal);
+#endif
         err_msg = "Falha ao inicializar cURL.";
         return false;
     }
@@ -222,10 +243,11 @@ bool Network::downloadFile(const std::string& url,
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &ctx);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
 
-    // Buffer de recepção de rede de 512 KB (aumenta muito o throughput do Switch)
-    curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 512 * 1024);
+    // Buffer de recepção TCP de 1 MB para estourar o limite de 5 MB/s
+    curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 1024 * 1024);
     curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 1L);
     curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
+    curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0 (Nintendo Switch; NXPortHub/1.0)");
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
@@ -239,6 +261,11 @@ bool Network::downloadFile(const std::string& url,
     CURLcode res = curl_easy_perform(curl);
     fflush(fp);
     fclose(fp);
+
+#ifdef __SWITCH__
+    // Retorna a CPU ao modo normal
+    appletSetCpuBoostMode(ApmCpuBoostMode_Normal);
+#endif
 
     if (res == CURLE_ABORTED_BY_CALLBACK) {
         remove(dest_path.c_str());
