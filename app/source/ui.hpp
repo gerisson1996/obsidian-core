@@ -5,6 +5,7 @@
 #include <vector>
 #include <string>
 #include "catalog.hpp"
+#include "cover_loader.hpp"
 
 enum ViewState {
     VIEW_CATALOG,
@@ -27,13 +28,12 @@ public:
     void render();
 
     bool shouldExit() const { return m_exit; }
-
-    // Ações acionadas pelo gamepad
     void onButtonDown(int button);
 
 private:
     SDL_Window* m_window = nullptr;
     SDL_Renderer* m_renderer = nullptr;
+    CoverLoader m_covers;
 
     ViewState m_state = VIEW_CATALOG;
     Catalog m_catalog;
