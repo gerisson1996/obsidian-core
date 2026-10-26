@@ -34,7 +34,7 @@ CXXFLAGS	:= $(CFLAGS) -fno-rtti -std=gnu++17
 ASFLAGS	:=	-g $(ARCH)
 LDFLAGS	=	-specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
-LIBS	:=	`$(PORTLIBS)/bin/sdl2-config --libs` -lcurl -lpng -ljpeg -lz -lnx
+LIBS	:=	`$(PORTLIBS)/bin/sdl2-config --libs` -lcurl -lminizip -lpng -ljpeg -lz -lnx
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries

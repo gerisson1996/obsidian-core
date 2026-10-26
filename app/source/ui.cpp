@@ -187,17 +187,26 @@ void UI::startInstallCurrentPort() {
     render();
 
     std::string result_msg;
+    Uint32 last_render_tick = SDL_GetTicks();
+
     bool success = Installer::installPort(port, 
-        [this](uint64_t cur, uint64_t total, double speed) {
+        [this, &last_render_tick](uint64_t cur, uint64_t total, double speed) {
             m_dl_current = cur;
             if (total > 0) m_dl_total = total;
             m_dl_speed = speed;
-            render();
-            // Processa eventos durante o download para permitir cancelar pelo botão B
-            SDL_Event ev;
-            while (SDL_PollEvent(&ev)) {
-                if (ev.type == SDL_JOYBUTTONDOWN && ev.jbutton.button == 1) {
-                    m_download_cancel_req = true;
+
+            Uint32 now = SDL_GetTicks();
+            // Atualiza a tela a cada ~80ms (12 FPS na barra) para NAO travar o download esperando VSYNC
+            if (now - last_render_tick >= 80 || cur == total) {
+                last_render_tick = now;
+                render();
+
+                // Processa eventos durante o download para permitir cancelar pelo botão B
+                SDL_Event ev;
+                while (SDL_PollEvent(&ev)) {
+                    if (ev.type == SDL_JOYBUTTONDOWN && ev.jbutton.button == 1) {
+                        m_download_cancel_req = true;
+                    }
                 }
             }
         }, 

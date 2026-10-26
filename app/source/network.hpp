@@ -13,6 +13,9 @@ public:
     static void cleanup();
     static bool is_online();
 
+    // Converte links padrão do Google Drive para links diretos de download
+    static std::string normalizeDownloadUrl(const std::string& url);
+
     static bool fetchString(const std::string& url, std::string& out_data, std::string& err_msg, int timeout_seconds = 15);
     static bool downloadFile(const std::string& url, 
                              const std::string& dest_path, 

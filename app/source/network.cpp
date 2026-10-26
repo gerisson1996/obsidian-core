@@ -2,6 +2,7 @@
 #include <curl/curl.h>
 #include <cstdio>
 #include <chrono>
+#include <regex>
 
 #ifdef __SWITCH__
 #include <switch.h>
@@ -45,10 +46,41 @@ bool Network::is_online() {
     if (R_SUCCEEDED(rc)) {
         return (status == NifmInternetConnectionStatus_Connected);
     }
-    return true; // Fallback se não conseguir consultar
+    return true;
 #else
     return true;
 #endif
+}
+
+std::string Network::normalizeDownloadUrl(const std::string& url) {
+    // Detecta URLs comuns do Google Drive e converte para download direto com bypass de confirmação
+    if (url.find("drive.google.com") != std::string::npos || url.find("drive.usercontent.google.com") != std::string::npos) {
+        std::string file_id;
+        
+        // Formato /file/d/<id>/
+        size_t d_pos = url.find("/d/");
+        if (d_pos != std::string::npos) {
+            size_t start = d_pos + 3;
+            size_t end = url.find('/', start);
+            if (end == std::string::npos) end = url.find('?', start);
+            if (end == std::string::npos) end = url.size();
+            file_id = url.substr(start, end - start);
+        } else {
+            // Formato id=<id>
+            size_t id_pos = url.find("id=");
+            if (id_pos != std::string::npos) {
+                size_t start = id_pos + 3;
+                size_t end = url.find('&', start);
+                if (end == std::string::npos) end = url.size();
+                file_id = url.substr(start, end - start);
+            }
+        }
+
+        if (!file_id.empty()) {
+            return "https://drive.usercontent.google.com/download?id=" + file_id + "&export=download&confirm=t";
+        }
+    }
+    return url;
 }
 
 static size_t writeStringCallback(void* contents, size_t size, size_t nmemb, void* userp) {
@@ -70,16 +102,20 @@ bool Network::fetchString(const std::string& url, std::string& out_data, std::st
         return false;
     }
 
+    std::string direct_url = normalizeDownloadUrl(url);
+
     out_data.clear();
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_URL, direct_url.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeStringCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &out_data);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "NXPortHub/1.0 (Nintendo Switch)");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0 (Nintendo Switch; NXPortHub/1.0)");
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, static_cast<long>(timeout_seconds));
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    curl_easy_setopt(curl, CURLOPT_COOKIEFILE, "");
+    curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 1L);
 
     CURLcode res = curl_easy_perform(curl);
     if (res != CURLE_OK) {
@@ -105,6 +141,7 @@ struct DownloadContext {
     DownloadProgressCallback progress_cb;
     bool* cancel_flag = nullptr;
     std::chrono::steady_clock::time_point last_time;
+    std::chrono::steady_clock::time_point last_ui_time;
     curl_off_t last_dl = 0;
     double current_speed = 0.0;
 };
@@ -123,15 +160,21 @@ static int xferInfoCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow,
 
     auto now = std::chrono::steady_clock::now();
     std::chrono::duration<double> elapsed = now - ctx->last_time;
-    if (elapsed.count() >= 0.5) {
+    if (elapsed.count() >= 0.4) {
         double bytes_diff = static_cast<double>(dlnow - ctx->last_dl);
         ctx->current_speed = bytes_diff / elapsed.count();
         ctx->last_dl = dlnow;
         ctx->last_time = now;
     }
 
-    if (ctx->progress_cb) {
-        ctx->progress_cb(static_cast<uint64_t>(dlnow), static_cast<uint64_t>(dltotal), ctx->current_speed);
+    // Só chama o callback se passaram pelo menos 50 milissegundos (~20 FPS)
+    // para NUNCA travar a largura de banda de rede com chamadas de renderização!
+    std::chrono::duration<double> ui_elapsed = now - ctx->last_ui_time;
+    if (ui_elapsed.count() >= 0.05 || dlnow == dltotal) {
+        ctx->last_ui_time = now;
+        if (ctx->progress_cb) {
+            ctx->progress_cb(static_cast<uint64_t>(dlnow), static_cast<uint64_t>(dltotal), ctx->current_speed);
+        }
     }
 
     return 0;
@@ -147,11 +190,16 @@ bool Network::downloadFile(const std::string& url,
         return false;
     }
 
+    std::string direct_url = normalizeDownloadUrl(url);
+
     FILE* fp = fopen(dest_path.c_str(), "wb");
     if (!fp) {
         err_msg = "Falha ao abrir arquivo para escrita: " + dest_path;
         return false;
     }
+
+    // Buffer de 1 MB para escritas contínuas rápidas no MicroSD (evita gargalo de I/O)
+    setvbuf(fp, NULL, _IOFBF, 1024 * 1024);
 
     CURL* curl = curl_easy_init();
     if (!curl) {
@@ -165,21 +213,31 @@ bool Network::downloadFile(const std::string& url,
     ctx.progress_cb = progress_cb;
     ctx.cancel_flag = cancel_flag;
     ctx.last_time = std::chrono::steady_clock::now();
+    ctx.last_ui_time = ctx.last_time;
 
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_URL, direct_url.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeFileCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ctx);
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, xferInfoCallback);
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &ctx);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "NXPortHub/1.0 (Nintendo Switch)");
+
+    // Buffer de recepção de rede de 512 KB (aumenta muito o throughput do Switch)
+    curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 512 * 1024);
+    curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 1L);
+    curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
+
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0 (Nintendo Switch; NXPortHub/1.0)");
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_AUTOREFERER, 1L);
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    curl_easy_setopt(curl, CURLOPT_COOKIEFILE, "");
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 15L);
 
     CURLcode res = curl_easy_perform(curl);
+    fflush(fp);
     fclose(fp);
 
     if (res == CURLE_ABORTED_BY_CALLBACK) {
