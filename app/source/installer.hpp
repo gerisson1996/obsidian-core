@@ -23,6 +23,7 @@ public:
 
     static bool installPort(const PortItem& port, 
                             bool only_update_nro,
+                            bool install_forwarder,
                             DownloadProgressCallback progress_cb, 
                             ExtractProgressCallback extract_cb,
                             bool* cancel_flag, 

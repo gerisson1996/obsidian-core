@@ -14,9 +14,15 @@
 enum ViewState {
     VIEW_CATALOG,
     VIEW_DETAILS,
+    VIEW_LAUNCH_PROMPT,
     VIEW_DOWNLOADING,
     VIEW_SETTINGS,
     VIEW_MESSAGE
+};
+
+enum LaunchTarget {
+    LAUNCH_HOME_MENU = 0,
+    LAUNCH_TITLE_TAKEOVER = 1
 };
 
 enum InstallStage {
@@ -81,8 +87,11 @@ private:
     std::string m_modal_message;
     ViewState m_prev_state = VIEW_CATALOG;
 
+    LaunchTarget m_launch_target = LAUNCH_HOME_MENU;
+
     void renderCatalog();
     void renderDetails();
+    void renderLaunchPrompt();
     void renderDownloading();
     void renderSettings();
     void renderMessageModal();
@@ -90,7 +99,7 @@ private:
     void renderFooter(const std::string& hints);
 
     void showModal(const std::string& title, const std::string& message);
-    void startInstallCurrentPort();
+    void startInstallCurrentPort(bool install_forwarder);
 };
 
 #endif // UI_HPP

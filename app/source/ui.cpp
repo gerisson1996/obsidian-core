@@ -193,8 +193,16 @@ void UI::onButtonDown(int button) {
     } else if (m_state == VIEW_DETAILS) {
         if (button == 1) { // B - Voltar
             m_state = VIEW_CATALOG;
-        } else if (button == 0) { // A - Instalar
-            startInstallCurrentPort();
+        } else if (button == 0) { // A - Perguntar modo de instalação
+            if (!m_catalog.ports.empty()) {
+                const auto& port = m_catalog.ports[m_selected_index];
+                if (port.is_installed() && !port.is_update_available()) {
+                    showModal("Jogo Já Atualizado", 
+                              "O jogo " + port.title + " já está instalado na versão mais recente (v" + port.version + ").\n\nNão há nenhuma atualização pendente!");
+                } else {
+                    m_state = VIEW_LAUNCH_PROMPT;
+                }
+            }
         } else if (button == 2) { // X - Desinstalar executável se já estiver instalado
             if (!m_catalog.ports.empty()) {
                 const auto& port = m_catalog.ports[m_selected_index];
@@ -204,6 +212,14 @@ void UI::onButtonDown(int button) {
                     showModal("Desinstalação", msg);
                 }
             }
+        }
+    } else if (m_state == VIEW_LAUNCH_PROMPT) {
+        if (button == 0) { // A - Tela Principal (Forwarder)
+            startInstallCurrentPort(true);
+        } else if (button == 3) { // Y - Segurar R (Title Takeover)
+            startInstallCurrentPort(false);
+        } else if (button == 1) { // B - Cancelar
+            m_state = VIEW_DETAILS;
         }
     } else if (m_state == VIEW_DOWNLOADING) {
         if (button == 1) { // B - Cancelar
@@ -216,18 +232,12 @@ void UI::onButtonDown(int button) {
     }
 }
 
-void UI::startInstallCurrentPort() {
+void UI::startInstallCurrentPort(bool install_forwarder) {
     if (m_catalog.ports.empty() || m_selected_index >= (int)m_catalog.ports.size()) return;
     if (m_download_in_progress) return;
 
     const PortItem port = m_catalog.ports[m_selected_index];
-
-    // Se o jogo já está instalado e NÃO possui update disponível
-    if (port.is_installed() && !port.is_update_available()) {
-        showModal("Jogo Já Atualizado", 
-                  "O jogo " + port.title + " já está instalado na versão mais recente (v" + port.version + ").\n\nNão há nenhuma atualização pendente!");
-        return;
-    }
+    m_launch_target = install_forwarder ? LAUNCH_HOME_MENU : LAUNCH_TITLE_TAKEOVER;
 
     // Se os arquivos do jogo já estiverem presentes no SD (ou se for atualização de versão):
     // Baixa APENAS o executável .nro!
@@ -260,10 +270,11 @@ void UI::startInstallCurrentPort() {
     m_extract_current = 0;
     m_extract_total = 0;
 
-    m_worker_thread = std::thread([this, port, only_update_nro]() {
+    m_worker_thread = std::thread([this, port, only_update_nro, install_forwarder]() {
         std::string result_msg;
         bool success = Installer::installPort(port, 
             only_update_nro,
+            install_forwarder,
             [this](uint64_t cur, uint64_t total, double speed) {
                 m_stage = STAGE_DOWNLOADING;
                 m_dl_current = cur;
@@ -898,6 +909,117 @@ void UI::renderMessageModal() {
     FontRenderer::drawText(m_renderer, modal_box.x + 36, modal_box.y + modal_box.h - 50, "Pressione (A) ou (B) para continuar.", COLOR_MUTED, 2);
 }
 
+void UI::renderLaunchPrompt() {
+    if (m_selected_index >= (int)m_catalog.ports.size()) return;
+    const auto& port = m_catalog.ports[m_selected_index];
+
+    // Escurece o fundo sobre a tela de detalhes
+    SDL_Rect backdrop = { 0, 0, 1280, 720 };
+    SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 210);
+    SDL_RenderFillRect(m_renderer, &backdrop);
+
+    // Caixa de diálogo principal centralizada
+    int box_w = 840;
+    int box_h = 500;
+    int box_x = (1280 - box_w) / 2; // 220
+    int box_y = (720 - box_h) / 2;  // 110
+    SDL_Rect dialog = { box_x, box_y, box_w, box_h };
+
+    // Fundo da modal
+    SDL_SetRenderDrawColor(m_renderer, COLOR_PANEL.r, COLOR_PANEL.g, COLOR_PANEL.b, 255);
+    SDL_RenderFillRect(m_renderer, &dialog);
+    SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_NONE);
+
+    // Borda dupla em ciano neon
+    SDL_SetRenderDrawColor(m_renderer, COLOR_ACCENT.r, COLOR_ACCENT.g, COLOR_ACCENT.b, 255);
+    SDL_RenderDrawRect(m_renderer, &dialog);
+    SDL_Rect dialog_inner = { box_x + 2, box_y + 2, box_w - 4, box_h - 4 };
+    SDL_RenderDrawRect(m_renderer, &dialog_inner);
+
+    // Cabeçalho da modal
+    std::string header_title = "MODO DE INICIALIZAÇÃO";
+    FontRenderer::drawText(m_renderer, box_x + 36, box_y + 24, header_title, COLOR_TEXT, 3);
+
+    std::string header_sub = "Como prefere acessar " + port.title + " no console?";
+    FontRenderer::drawText(m_renderer, box_x + 36, box_y + 64, header_sub, COLOR_MUTED, 2);
+
+    // Divisória sutil
+    SDL_SetRenderDrawColor(m_renderer, 0x2A, 0x34, 0x46, 255);
+    SDL_RenderDrawLine(m_renderer, box_x + 36, box_y + 94, box_x + box_w - 36, box_y + 94);
+
+    // ─────────────────────────────────────────────────────────────
+    // OPÇÃO 1: (A) TELA PRINCIPAL (Home Menu / Atalho NSP)
+    // ─────────────────────────────────────────────────────────────
+    SDL_Rect card_a = { box_x + 36, box_y + 110, box_w - 72, 135 };
+    SDL_SetRenderDrawColor(m_renderer, 0x1A, 0x23, 0x33, 255);
+    SDL_RenderFillRect(m_renderer, &card_a);
+
+    SDL_SetRenderDrawColor(m_renderer, COLOR_ACCENT.r, COLOR_ACCENT.g, COLOR_ACCENT.b, 255);
+    SDL_RenderDrawRect(m_renderer, &card_a);
+
+    // Botão / Ícone (A)
+    SDL_Rect btn_a = { card_a.x + 20, card_a.y + 20, 48, 36 };
+    SDL_SetRenderDrawColor(m_renderer, COLOR_ACCENT.r, COLOR_ACCENT.g, COLOR_ACCENT.b, 255);
+    SDL_RenderFillRect(m_renderer, &btn_a);
+    FontRenderer::drawText(m_renderer, btn_a.x + 16, btn_a.y + 6, "A", COLOR_BG, 2);
+
+    // Textos da Opção A
+    FontRenderer::drawText(m_renderer, card_a.x + 84, card_a.y + 16, "INSTALAR NA TELA PRINCIPAL (Home Menu)", COLOR_TEXT, 2);
+    FontRenderer::drawText(m_renderer, card_a.x + 84, card_a.y + 46, "Cria o atalho oficial para aparecer na grade de jogos do Switch.", COLOR_MUTED, 2);
+    FontRenderer::drawText(m_renderer, card_a.x + 84, card_a.y + 72, "Permite abrir o jogo com 1 clique direto pelo menu inicial.", COLOR_MUTED, 2);
+
+    // Tag da Opção A
+    SDL_Rect tag_a = { card_a.x + card_a.w - 180, card_a.y + 14, 160, 24 };
+    SDL_SetRenderDrawColor(m_renderer, 0x10, 0x38, 0x24, 255);
+    SDL_RenderFillRect(m_renderer, &tag_a);
+    SDL_SetRenderDrawColor(m_renderer, COLOR_GREEN.r, COLOR_GREEN.g, COLOR_GREEN.b, 255);
+    SDL_RenderDrawRect(m_renderer, &tag_a);
+    FontRenderer::drawText(m_renderer, tag_a.x + 12, tag_a.y + 4, "[ MAIS PRÁTICO ]", COLOR_GREEN, 1);
+
+    // ─────────────────────────────────────────────────────────────
+    // OPÇÃO 2: (Y) ABRIR SEGURANDO R (Title Takeover / hbmenu)
+    // ─────────────────────────────────────────────────────────────
+    SDL_Rect card_y = { box_x + 36, box_y + 265, box_w - 72, 135 };
+    SDL_SetRenderDrawColor(m_renderer, 0x1A, 0x23, 0x33, 255);
+    SDL_RenderFillRect(m_renderer, &card_y);
+
+    SDL_SetRenderDrawColor(m_renderer, COLOR_WARN.r, COLOR_WARN.g, COLOR_WARN.b, 255);
+    SDL_RenderDrawRect(m_renderer, &card_y);
+
+    // Botão / Ícone (Y)
+    SDL_Rect btn_y = { card_y.x + 20, card_y.y + 20, 48, 36 };
+    SDL_SetRenderDrawColor(m_renderer, COLOR_WARN.r, COLOR_WARN.g, COLOR_WARN.b, 255);
+    SDL_RenderFillRect(m_renderer, &btn_y);
+    FontRenderer::drawText(m_renderer, btn_y.x + 16, btn_y.y + 6, "Y", COLOR_BG, 2);
+
+    // Textos da Opção Y
+    FontRenderer::drawText(m_renderer, card_y.x + 84, card_y.y + 16, "ABRIR SEGURANDO [R] (Title Takeover)", COLOR_TEXT, 2);
+    FontRenderer::drawText(m_renderer, card_y.x + 84, card_y.y + 46, "Inicia segurando o botão R sobre qualquer jogo instalado.", COLOR_MUTED, 2);
+    FontRenderer::drawText(m_renderer, card_y.x + 84, card_y.y + 72, "Libera 100% da memória RAM do console (Desempenho Total / 60 FPS).", COLOR_MUTED, 2);
+
+    // Tag da Opção Y
+    SDL_Rect tag_y = { card_y.x + card_y.w - 200, card_y.y + 14, 180, 24 };
+    SDL_SetRenderDrawColor(m_renderer, 0x38, 0x2A, 0x05, 255);
+    SDL_RenderFillRect(m_renderer, &tag_y);
+    SDL_SetRenderDrawColor(m_renderer, COLOR_WARN.r, COLOR_WARN.g, COLOR_WARN.b, 255);
+    SDL_RenderDrawRect(m_renderer, &tag_y);
+    FontRenderer::drawText(m_renderer, tag_y.x + 10, tag_y.y + 4, "[ MÁXIMO DESEMPENHO ]", COLOR_WARN, 1);
+
+    // ─────────────────────────────────────────────────────────────
+    // RODAPÉ DA MODAL
+    // ─────────────────────────────────────────────────────────────
+    SDL_SetRenderDrawColor(m_renderer, 0x11, 0x15, 0x1F, 255);
+    SDL_Rect bot_area = { box_x + 1, box_y + box_h - 56, box_w - 2, 55 };
+    SDL_RenderFillRect(m_renderer, &bot_area);
+    SDL_SetRenderDrawColor(m_renderer, 0x2A, 0x34, 0x46, 255);
+    SDL_RenderDrawLine(m_renderer, box_x, box_y + box_h - 56, box_x + box_w, box_y + box_h - 56);
+
+    std::string footer_hints = "(A) Tela Principal     (Y) Segurar [R]     (B) Cancelar";
+    int hw = FontRenderer::getTextWidth(footer_hints, 2);
+    FontRenderer::drawText(m_renderer, box_x + (box_w - hw) / 2, box_y + box_h - 38, footer_hints, COLOR_TEXT, 2);
+}
+
 void UI::render() {
     SDL_SetRenderDrawColor(m_renderer, COLOR_BG.r, COLOR_BG.g, COLOR_BG.b, 255);
     SDL_RenderClear(m_renderer);
@@ -905,6 +1027,10 @@ void UI::render() {
     switch (m_state) {
         case VIEW_CATALOG: renderCatalog(); break;
         case VIEW_DETAILS: renderDetails(); break;
+        case VIEW_LAUNCH_PROMPT: 
+            renderDetails(); 
+            renderLaunchPrompt(); 
+            break;
         case VIEW_DOWNLOADING: renderDownloading(); break;
         case VIEW_SETTINGS: renderSettings(); break;
         case VIEW_MESSAGE: 

@@ -164,6 +164,10 @@ bool Catalog::parse(const std::string& json_content, std::string& err_msg) {
                 if (item.preview_url.empty()) {
                     item.preview_url = p["gameplay_gif"].as_string();
                 }
+                item.forwarder_url = p["forwarder_url"].as_string();
+                if (item.forwarder_url.empty()) {
+                    item.forwarder_url = p["forwarder_nsp"].as_string();
+                }
 
                 // Compatibilidade
                 const auto& comp = p["compatibility"];

@@ -223,6 +223,7 @@ static bool downloadAndVerify(const std::string& url,
 
 bool Installer::installPort(const PortItem& port, 
                             bool only_update_nro,
+                            bool install_forwarder,
                             DownloadProgressCallback progress_cb, 
                             ExtractProgressCallback extract_cb,
                             bool* cancel_flag, 
@@ -265,7 +266,11 @@ bool Installer::installPort(const PortItem& port,
             fprintf(fp, "%s\n", port.version.c_str());
             fclose(fp);
         }
-        status_msg = "Executável atualizado com sucesso para v" + port.version + "!\nSeus arquivos de jogo e saves foram mantidos intactos.";
+        if (install_forwarder) {
+            status_msg = "Executável atualizado para v" + port.version + "!\nModo: Tela Principal (Home Menu).\nSeus arquivos de jogo e saves foram mantidos intactos.";
+        } else {
+            status_msg = "Executável atualizado para v" + port.version + "!\nModo: Segurar R (Title Takeover).\nSeus arquivos de jogo e saves foram mantidos intactos.";
+        }
         return true;
     }
 
@@ -315,6 +320,15 @@ bool Installer::installPort(const PortItem& port,
         }
     }
 
+    // 3. Se escolheu atalho na Tela Principal (Forwarder) e houver URL
+    if (install_forwarder && !port.forwarder_url.empty()) {
+        status_msg = "Baixando atalho para a Tela Principal (.nsp)...";
+        std::string nsp_dest = port.installation.install_dir + "/" + port.id + ".nsp";
+        downloadAndVerify(port.forwarder_url, nsp_dest, "", progress_cb, cancel_flag, err);
+        ensureDirectoryExists("sdmc:/install");
+        downloadAndVerify(port.forwarder_url, "sdmc:/install/" + port.id + ".nsp", "", progress_cb, cancel_flag, err);
+    }
+
     // Salva o registro da versão instalada
     std::string ver_path = port.installation.install_dir + "/version.txt";
     FILE* fp = fopen(ver_path.c_str(), "w");
@@ -323,7 +337,20 @@ bool Installer::installPort(const PortItem& port,
         fclose(fp);
     }
 
-    status_msg = "Instalação concluída com sucesso!\nTodos os arquivos foram extraídos e organizados.";
+    if (install_forwarder) {
+        status_msg = "Instalação Concluída com Sucesso!\n"
+                     "Modo Selecionado: TELA PRINCIPAL (Home Menu)\n\n"
+                     "• Jogo e dados instalados em: " + port.installation.install_dir + "\n"
+                     "• Atalho salvo em: sdmc:/switch/" + port.id + "/" + port.id + ".nsp\n\n"
+                     "Para ativar o ícone na tela inicial do Nintendo Switch:\n"
+                     "Abra o DBI ou Goldleaf e instale o atalho .nsp.";
+    } else {
+        status_msg = "Instalação Concluída com Sucesso!\n"
+                     "Modo Selecionado: SEGURAR [R] (Title Takeover / hbmenu)\n\n"
+                     "• Jogo e dados instalados em: " + port.installation.install_dir + "\n\n"
+                     "Como jogar com desempenho máximo:\n"
+                     "Segure o botão [R] no controle ao abrir qualquer jogo no Switch para entrar no hbmenu com 100% da RAM liberada, e selecione " + port.title + ".";
+    }
     return true;
 }
 
