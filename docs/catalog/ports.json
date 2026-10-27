@@ -3,7 +3,7 @@
   "project": "NX Port Hub",
   "catalog_id": "obsidian-core-main",
   "catalog_url": "https://gerisson1996.github.io/obsidian-core/catalog/ports.json",
-  "updated_at": "2026-10-26",
+  "updated_at": "2026-10-27",
   "categories": [
     {
       "id": "fps",
@@ -99,7 +99,7 @@
         "required": true,
         "explanation_pt_br": "O port não inclui os arquivos comerciais do jogo completo. Para jogar com legendas e menus em Português Brasileiro (PT-BR), utilize o default.xbe traduzido e o GlobData.bin na pasta game/, além dos arquivos do seu disco original de Xbox.",
         "target_directory": "sdmc:/switch/black/game",
-        "drive_folder_url": "https://drive.google.com/drive/folders/1TmlA89emf856BO_FW9Ot8VThJLtp76wV?usp=sharing",
+        "drive_folder_url": "https://drive.google.com/drive/folders/1UhudKnBhL7UZ2WoVQyLlJb0etR8ZxZQB?usp=sharing",
         "required_files": [
           {
             "relative_path": "default.xbe",
@@ -151,6 +151,17 @@
         "installed_size_bytes": 95371889,
         "sha256": "866d068c7eecbbbbc92976a14a46308f93e40b3f910ba9b2b0ec988ebf56080b"
       },
+      "extra_downloads": [
+        {
+          "name": "Cold Fear (Dados do Jogo Completos)",
+          "download_url": "https://drive.usercontent.google.com/download?id=1eREtMnoqb41LXp2vGBBx6ezFIAzw4EDp&export=download&confirm=t",
+          "target_path": "sdmc:/switch/coldfear/game",
+          "archive_type": "zip",
+          "strip_prefix": "game/",
+          "size_bytes": 2517973117,
+          "sha256": ""
+        }
+      ],
       "installation": {
         "profile": "xbox_recomp_nro",
         "install_dir": "sdmc:/switch/coldfear",
@@ -172,6 +183,7 @@
         "required": true,
         "explanation_pt_br": "O jogo comercial não está incluído. É necessário fornecer os arquivos originais da versão NTSC-U (EUA) de Cold Fear para Xbox (Title ID 0x5553004B / US-075).",
         "target_directory": "sdmc:/switch/coldfear/game",
+        "drive_folder_url": "https://drive.google.com/drive/folders/1UhudKnBhL7UZ2WoVQyLlJb0etR8ZxZQB?usp=sharing",
         "required_files": [
           {
             "relative_path": "default.xbe",
