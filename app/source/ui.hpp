@@ -9,6 +9,7 @@
 #include <mutex>
 #include "catalog.hpp"
 #include "cover_loader.hpp"
+#include "preview_loader.hpp"
 
 enum ViewState {
     VIEW_CATALOG,
@@ -31,6 +32,8 @@ public:
     bool init();
     void shutdown();
 
+    void renderSplashScreen(const std::string& status, float progress);
+
     void setCatalog(const Catalog& cat);
     void update();
     void render();
@@ -42,6 +45,7 @@ private:
     SDL_Window* m_window = nullptr;
     SDL_Renderer* m_renderer = nullptr;
     CoverLoader m_covers;
+    PreviewLoader m_previews;
 
     ViewState m_state = VIEW_CATALOG;
     Catalog m_catalog;

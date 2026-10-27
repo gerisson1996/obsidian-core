@@ -160,6 +160,10 @@ bool Catalog::parse(const std::string& json_content, std::string& err_msg) {
                 item.thread_url = p["thread_url"].as_string();
                 item.cover_url = p["cover_url"].as_string();
                 item.icon_url = p["icon_url"].as_string();
+                item.preview_url = p["preview_url"].as_string();
+                if (item.preview_url.empty()) {
+                    item.preview_url = p["gameplay_gif"].as_string();
+                }
 
                 // Compatibilidade
                 const auto& comp = p["compatibility"];

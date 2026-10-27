@@ -35,9 +35,15 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
+    // Tela de carregamento inicial elegante
+    ui.renderSplashScreen("Iniciando componentes do sistema...", 0.15f);
+    SDL_Delay(50);
+
     // Inicialização de rede
+    ui.renderSplashScreen("Conectando aos serviços de rede...", 0.35f);
     Network::initialize();
 
+    ui.renderSplashScreen("Buscando catálogo de ports mais recente...", 0.60f);
     Catalog catalog;
     std::string catalog_json;
     std::string err_msg;
@@ -53,11 +59,15 @@ int main(int argc, char* argv[]) {
 
     // 2. Se offline ou falhou, tenta carregar do cache local no cartão SD
     if (!loaded) {
+        ui.renderSplashScreen("Carregando catálogo do cache local...", 0.85f);
         std::string cached = loadCache();
         if (!cached.empty() && catalog.parse(cached, err_msg)) {
             loaded = true;
         }
     }
+
+    ui.renderSplashScreen("NX Port Hub pronto!", 1.0f);
+    SDL_Delay(80);
 
     ui.setCatalog(catalog);
 

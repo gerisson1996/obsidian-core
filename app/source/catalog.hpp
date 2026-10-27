@@ -72,6 +72,7 @@ struct PortItem {
     std::string thread_url;
     std::string cover_url;
     std::string icon_url;
+    std::string preview_url;
     CompatibilityInfo compatibility;
     PackageInfo package;
     std::vector<ExtraDownload> extra_downloads;

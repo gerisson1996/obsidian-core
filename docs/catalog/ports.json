@@ -51,6 +51,7 @@
       "Thread_url": "https://gbatemp.net/threads/black-xbox-nx-port.685756/",
       "license": "MIT",
       "cover_url": "https://gerisson1996.github.io/obsidian-core/covers/black.jpg",
+      "preview_url": "https://gerisson1996.github.io/obsidian-core/previews/black.gif",
       "screenshots": [],
       "compatibility": {
         "status": "jogavel",
@@ -132,6 +133,7 @@
       "license": "MIT",
       "cover_url": "https://gerisson1996.github.io/obsidian-core/covers/coldfear.png",
       "icon_url": "https://raw.githubusercontent.com/gerisson1996/COLD-FEAR-NX-PORT/main/coldfear-icon-256.jpg",
+      "preview_url": "https://gerisson1996.github.io/obsidian-core/previews/coldfear.gif",
       "screenshots": [],
       "compatibility": {
         "status": "experimental",

@@ -42,6 +42,8 @@ bool UI::init() {
     }
 
     m_covers.init(m_renderer);
+    m_previews.init(m_renderer);
+    FontRenderer::init(m_renderer);
 
     for (int i = 0; i < 2; i++) {
         SDL_JoystickOpen(i);
@@ -55,7 +57,9 @@ void UI::shutdown() {
         m_download_cancel_req = true;
         m_worker_thread.join();
     }
+    m_previews.cleanup();
     m_covers.cleanup();
+    FontRenderer::cleanup();
     if (m_renderer) {
         SDL_DestroyRenderer(m_renderer);
         m_renderer = nullptr;
@@ -284,6 +288,79 @@ void UI::startInstallCurrentPort() {
     });
 }
 
+void UI::renderSplashScreen(const std::string& status, float progress) {
+    if (!m_renderer) return;
+
+    SDL_SetRenderDrawColor(m_renderer, COLOR_BG.r, COLOR_BG.g, COLOR_BG.b, 255);
+    SDL_RenderClear(m_renderer);
+
+    int cx = 640;
+    int cy = 250;
+
+    // Outer glow ring
+    SDL_Rect logo_glow = { cx - 70, cy - 70, 140, 140 };
+    SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(m_renderer, COLOR_ACCENT.r, COLOR_ACCENT.g, COLOR_ACCENT.b, 40);
+    SDL_RenderFillRect(m_renderer, &logo_glow);
+    SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_NONE);
+
+    // Switch Joy-Con logo
+    SDL_Rect joy_l = { cx - 38, cy - 42, 34, 68 };
+    SDL_Rect joy_r = { cx + 4,  cy - 42, 34, 68 };
+    SDL_SetRenderDrawColor(m_renderer, 0x00, 0xE5, 0xFF, 255); // Neon Cyan
+    SDL_RenderFillRect(m_renderer, &joy_l);
+    SDL_SetRenderDrawColor(m_renderer, 0xFF, 0x17, 0x44, 255); // Neon Red
+    SDL_RenderFillRect(m_renderer, &joy_r);
+
+    // Joy-Con sticks
+    SDL_Rect stick_l = { cx - 27, cy - 28, 12, 12 };
+    SDL_Rect stick_r = { cx + 15, cy - 2, 12, 12 };
+    SDL_SetRenderDrawColor(m_renderer, COLOR_BG.r, COLOR_BG.g, COLOR_BG.b, 255);
+    SDL_RenderFillRect(m_renderer, &stick_l);
+    SDL_RenderFillRect(m_renderer, &stick_r);
+
+    // Title
+    std::string title = "NX PORT HUB";
+    int tw = FontRenderer::getTextWidth(title, 4);
+    FontRenderer::drawText(m_renderer, cx - tw / 2, cy + 48, title, COLOR_TEXT, 4);
+
+    std::string sub = "OBSIDIAN NATIVE RECOMPILATIONS";
+    int sw = FontRenderer::getTextWidth(sub, 1);
+    FontRenderer::drawText(m_renderer, cx - sw / 2, cy + 96, sub, COLOR_ACCENT, 1);
+
+    // Loading Bar
+    int bar_w = 600;
+    int bar_h = 16;
+    int bar_x = cx - bar_w / 2;
+    int bar_y = cy + 146;
+
+    SDL_Rect track_rect = { bar_x, bar_y, bar_w, bar_h };
+    SDL_SetRenderDrawColor(m_renderer, COLOR_PANEL_ALT.r, COLOR_PANEL_ALT.g, COLOR_PANEL_ALT.b, 255);
+    SDL_RenderFillRect(m_renderer, &track_rect);
+    SDL_SetRenderDrawColor(m_renderer, 0x2A, 0x34, 0x46, 255);
+    SDL_RenderDrawRect(m_renderer, &track_rect);
+
+    if (progress > 1.0f) progress = 1.0f;
+    if (progress < 0.0f) progress = 0.0f;
+    int fill_w = static_cast<int>(bar_w * progress);
+    if (fill_w > 0) {
+        SDL_Rect fill_rect = { bar_x, bar_y, fill_w, bar_h };
+        SDL_SetRenderDrawColor(m_renderer, COLOR_ACCENT.r, COLOR_ACCENT.g, COLOR_ACCENT.b, 255);
+        SDL_RenderFillRect(m_renderer, &fill_rect);
+    }
+
+    // Status text
+    int st_w = FontRenderer::getTextWidth(status, 2);
+    FontRenderer::drawText(m_renderer, cx - st_w / 2, bar_y + 28, status, COLOR_MUTED, 2);
+
+    // Version footer
+    std::string ver = "v0.1.0 • Desenvolvido para Nintendo Switch";
+    int vw = FontRenderer::getTextWidth(ver, 1);
+    FontRenderer::drawText(m_renderer, cx - vw / 2, 672, ver, COLOR_MUTED, 1);
+
+    SDL_RenderPresent(m_renderer);
+}
+
 void UI::renderHeader(const std::string& title, const std::string& subtitle) {
     SDL_Rect top_bar = { 0, 0, 1280, 68 };
     SDL_SetRenderDrawColor(m_renderer, COLOR_PANEL.r, COLOR_PANEL.g, COLOR_PANEL.b, 255);
@@ -445,15 +522,14 @@ void UI::renderCatalog() {
 
         text_y += 32;
 
-        // Descrição do jogo
+        // Descrição do jogo (ajustada para dar espaço à janela de gameplay)
         std::string desc = sel.short_description.empty() ? sel.description : sel.short_description;
-        // Divide em linhas se for muito longa
-        if (desc.size() > 95) {
-            size_t break_pt = desc.find_last_of(' ', 95);
-            if (break_pt == std::string::npos) break_pt = 95;
+        if (desc.size() > 58) {
+            size_t break_pt = desc.find_last_of(' ', 58);
+            if (break_pt == std::string::npos) break_pt = 58;
             std::string line1 = desc.substr(0, break_pt);
             std::string line2 = desc.substr(break_pt + 1);
-            if (line2.size() > 95) line2 = line2.substr(0, 92) + "...";
+            if (line2.size() > 58) line2 = line2.substr(0, 55) + "...";
 
             FontRenderer::drawText(m_renderer, text_x, text_y, line1, COLOR_MUTED, 2);
             text_y += 24;
@@ -466,14 +542,50 @@ void UI::renderCatalog() {
 
         // Status dos arquivos no SD
         if (sel.is_update_available()) {
-            FontRenderer::drawText(m_renderer, text_x, text_y, "[*] Nova versao disponivel! Atualizacao rapida apenas do .nro.", COLOR_WARN, 2);
+            FontRenderer::drawText(m_renderer, text_x, text_y, "[*] Nova versao! Atualizacao rapida apenas do .nro.", COLOR_WARN, 2);
         } else if (sel.is_installed()) {
             FontRenderer::drawText(m_renderer, text_x, text_y, "[OK] Jogo instalado e atualizado na versao mais recente.", COLOR_GREEN, 2);
         } else if (sel.has_game_files()) {
-            FontRenderer::drawText(m_renderer, text_x, text_y, "[OK] Arquivos do jogo detectados no SD. Pronto para instalar executavel.", COLOR_ACCENT, 2);
+            FontRenderer::drawText(m_renderer, text_x, text_y, "[OK] Arquivos detectados. Pronto para baixar executavel.", COLOR_ACCENT, 2);
         } else {
-            FontRenderer::drawText(m_renderer, text_x, text_y, "[!] Download inclui instalacao automatica completa via Google Drive.", COLOR_ACCENT, 2);
+            FontRenderer::drawText(m_renderer, text_x, text_y, "[!] Instalacao automatica completa via Google Drive.", COLOR_ACCENT, 2);
         }
+
+        // 3. JANELA DE GAMEPLAY PREVIEW / GIF ANIMADO AO LADO DO JOGO
+        int prev_w = 410;
+        int prev_h = 230;
+        int prev_x = 1240 - prev_w - 16;
+        int prev_y = 388 + 15;
+        SDL_Rect prev_rect = { prev_x, prev_y, prev_w, prev_h };
+
+        // Fundo e borda da tela de gameplay
+        SDL_SetRenderDrawColor(m_renderer, 0x0A, 0x0D, 0x14, 255);
+        SDL_RenderFillRect(m_renderer, &prev_rect);
+
+        SDL_Texture* prev_tex = m_previews.getCurrentFrame(sel.id, sel.preview_url);
+        if (!prev_tex) {
+            prev_tex = m_covers.getCover(sel.id, sel.cover_url);
+        }
+
+        if (prev_tex) {
+            SDL_RenderCopy(m_renderer, prev_tex, NULL, &prev_rect);
+        } else {
+            FontRenderer::drawText(m_renderer, prev_x + 90, prev_y + prev_h / 2 - 10, "Carregando Preview...", COLOR_MUTED, 2);
+        }
+
+        // Borda destacada em ciano
+        SDL_SetRenderDrawColor(m_renderer, COLOR_ACCENT.r, COLOR_ACCENT.g, COLOR_ACCENT.b, 255);
+        SDL_RenderDrawRect(m_renderer, &prev_rect);
+
+        // Tag superior sobreposta na gameplay
+        SDL_Rect prev_tag = { prev_x + 8, prev_y + 8, 140, 22 };
+        SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 190);
+        SDL_RenderFillRect(m_renderer, &prev_tag);
+        SDL_SetRenderDrawColor(m_renderer, COLOR_ACCENT.r, COLOR_ACCENT.g, COLOR_ACCENT.b, 255);
+        SDL_RenderDrawRect(m_renderer, &prev_tag);
+        SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_NONE);
+        FontRenderer::drawText(m_renderer, prev_tag.x + 8, prev_tag.y + 3, "[ ▶ GAMEPLAY ]", COLOR_ACCENT, 1);
     }
 
     renderFooter("(D-Pad / Analógico) Navegar   (A) Ver Detalhes & Baixar   (X) Sincronizar   (Y) Ajustes   (+) Sair");
@@ -539,6 +651,36 @@ void UI::renderDetails() {
 
     FontRenderer::drawText(m_renderer, cur_x, cur_y, "Destino no Cartao SD: " + port.installation.install_dir, COLOR_MUTED, 2);
     cur_y += 36;
+
+    // Janela de Gameplay Preview na Ficha de Detalhes
+    int prev_w = 370;
+    int prev_h = 208;
+    int prev_x = 312 + 920 - prev_w - 24;
+    int prev_y = 118;
+    SDL_Rect prev_rect = { prev_x, prev_y, prev_w, prev_h };
+
+    SDL_SetRenderDrawColor(m_renderer, 0x0A, 0x0D, 0x14, 255);
+    SDL_RenderFillRect(m_renderer, &prev_rect);
+
+    SDL_Texture* prev_tex = m_previews.getCurrentFrame(port.id, port.preview_url);
+    if (!prev_tex) {
+        prev_tex = cover_tex;
+    }
+    if (prev_tex) {
+        SDL_RenderCopy(m_renderer, prev_tex, NULL, &prev_rect);
+    }
+
+    SDL_SetRenderDrawColor(m_renderer, COLOR_ACCENT.r, COLOR_ACCENT.g, COLOR_ACCENT.b, 255);
+    SDL_RenderDrawRect(m_renderer, &prev_rect);
+
+    SDL_Rect prev_tag = { prev_x + 8, prev_y + 8, 140, 22 };
+    SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 190);
+    SDL_RenderFillRect(m_renderer, &prev_tag);
+    SDL_SetRenderDrawColor(m_renderer, COLOR_ACCENT.r, COLOR_ACCENT.g, COLOR_ACCENT.b, 255);
+    SDL_RenderDrawRect(m_renderer, &prev_tag);
+    SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_NONE);
+    FontRenderer::drawText(m_renderer, prev_tag.x + 8, prev_tag.y + 3, "[ ▶ GAMEPLAY ]", COLOR_ACCENT, 1);
 
     // Caixa de arquivos e instalacao inteligente
     SDL_Rect box_auto = { cur_x, cur_y, 872, 160 };
