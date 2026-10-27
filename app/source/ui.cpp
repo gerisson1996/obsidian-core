@@ -216,11 +216,26 @@ void UI::startInstallCurrentPort() {
     if (m_catalog.ports.empty() || m_selected_index >= (int)m_catalog.ports.size()) return;
     if (m_download_in_progress) return;
 
+    const PortItem port = m_catalog.ports[m_selected_index];
+
+    // Se o jogo já está instalado e NÃO possui update disponível
+    if (port.is_installed() && !port.is_update_available()) {
+        showModal("Jogo Já Atualizado", 
+                  "O jogo " + port.title + " já está instalado na versão mais recente (v" + port.version + ").\n\nNão há nenhuma atualização pendente!");
+        return;
+    }
+
+    // Se os arquivos do jogo já estiverem presentes no SD (ou se for atualização de versão):
+    // Baixa APENAS o executável .nro!
+    bool only_update_nro = false;
+    if (port.has_game_files()) {
+        only_update_nro = true;
+    }
+
     if (m_worker_thread.joinable()) {
         m_worker_thread.join();
     }
 
-    const PortItem port = m_catalog.ports[m_selected_index];
     m_state = VIEW_DOWNLOADING;
     m_stage = STAGE_DOWNLOADING;
     m_download_in_progress = true;
@@ -230,19 +245,21 @@ void UI::startInstallCurrentPort() {
     m_install_result_msg.clear();
 
     m_dl_current = 0;
-    m_dl_total = port.get_total_download_size();
+    m_dl_total = only_update_nro ? port.get_update_download_size() : port.get_total_download_size();
     m_dl_speed = 0.0;
     {
         std::lock_guard<std::mutex> lock(m_status_mutex);
-        m_dl_status_text = "Iniciando download em alta velocidade...";
+        m_dl_status_text = only_update_nro ? ("Baixando atualização do executável (v" + port.version + ")...")
+                                           : "Iniciando download do jogo completo...";
         m_extract_filename.clear();
     }
     m_extract_current = 0;
     m_extract_total = 0;
 
-    m_worker_thread = std::thread([this, port]() {
+    m_worker_thread = std::thread([this, port, only_update_nro]() {
         std::string result_msg;
         bool success = Installer::installPort(port, 
+            only_update_nro,
             [this](uint64_t cur, uint64_t total, double speed) {
                 m_stage = STAGE_DOWNLOADING;
                 m_dl_current = cur;
@@ -359,8 +376,17 @@ void UI::renderCatalog() {
             }
         }
 
-        // Tag "INSTALADO" no topo da capa
-        if (port.is_installed()) {
+        // Tag no topo da capa
+        if (port.is_update_available()) {
+            SDL_Rect tag_r = { card_rect.x + 8, card_rect.y + 8, 140, 24 };
+            SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(m_renderer, 0x38, 0x2A, 0x05, 230);
+            SDL_RenderFillRect(m_renderer, &tag_r);
+            SDL_SetRenderDrawColor(m_renderer, COLOR_WARN.r, COLOR_WARN.g, COLOR_WARN.b, 255);
+            SDL_RenderDrawRect(m_renderer, &tag_r);
+            SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_NONE);
+            FontRenderer::drawText(m_renderer, tag_r.x + 8, tag_r.y + 4, "[ * UPDATE ]", COLOR_WARN, 1);
+        } else if (port.is_installed()) {
             SDL_Rect tag_r = { card_rect.x + 8, card_rect.y + 8, 120, 24 };
             SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_BLEND);
             SDL_SetRenderDrawColor(m_renderer, 0x10, 0x38, 0x24, 230);
@@ -397,9 +423,15 @@ void UI::renderCatalog() {
 
         int off_x = text_x + FontRenderer::getTextWidth(status_badge, 2) + 16;
         std::string ver_badge = "v" + sel.version + " por " + sel.author;
-        FontRenderer::drawText(m_renderer, off_x, text_y, ver_badge, COLOR_MUTED, 2);
+        if (sel.is_update_available()) {
+            std::string inst_v = sel.get_installed_version();
+            ver_badge = "[ UPDATE v" + sel.version + " ] (Atual: v" + inst_v + ")";
+            FontRenderer::drawText(m_renderer, off_x, text_y, ver_badge, COLOR_WARN, 2);
+        } else {
+            FontRenderer::drawText(m_renderer, off_x, text_y, ver_badge, COLOR_MUTED, 2);
+        }
 
-        uint64_t total_bytes = sel.get_total_download_size();
+        uint64_t total_bytes = (sel.has_game_files() || sel.is_update_available()) ? sel.get_update_download_size() : sel.get_total_download_size();
         if (total_bytes > 0) {
             double mb = (double)total_bytes / (1024.0 * 1024.0);
             std::ostringstream ss;
@@ -407,7 +439,8 @@ void UI::renderCatalog() {
             else ss << std::fixed << std::setprecision(1) << mb << " MB";
             
             int off_x2 = off_x + FontRenderer::getTextWidth(ver_badge, 2) + 16;
-            FontRenderer::drawText(m_renderer, off_x2, text_y, "[ " + ss.str() + " ]", COLOR_TEXT, 2);
+            std::string sz_str = sel.is_update_available() ? ("[ Update: " + ss.str() + " ]") : ("[ " + ss.str() + " ]");
+            FontRenderer::drawText(m_renderer, off_x2, text_y, sz_str, COLOR_TEXT, 2);
         }
 
         text_y += 32;
@@ -432,15 +465,14 @@ void UI::renderCatalog() {
         text_y += 32;
 
         // Status dos arquivos no SD
-        std::vector<std::string> missing;
-        if (sel.original_files.required) {
-            if (sel.check_original_files_present(missing)) {
-                FontRenderer::drawText(m_renderer, text_x, text_y, "[OK] Todos os arquivos do jogo estao prontos no cartao SD.", COLOR_GREEN, 2);
-            } else {
-                FontRenderer::drawText(m_renderer, text_x, text_y, "[!] Download inclui instalacao automatica completa via Google Drive.", COLOR_ACCENT, 2);
-            }
+        if (sel.is_update_available()) {
+            FontRenderer::drawText(m_renderer, text_x, text_y, "[*] Nova versao disponivel! Atualizacao rapida apenas do .nro.", COLOR_WARN, 2);
+        } else if (sel.is_installed()) {
+            FontRenderer::drawText(m_renderer, text_x, text_y, "[OK] Jogo instalado e atualizado na versao mais recente.", COLOR_GREEN, 2);
+        } else if (sel.has_game_files()) {
+            FontRenderer::drawText(m_renderer, text_x, text_y, "[OK] Arquivos do jogo detectados no SD. Pronto para instalar executavel.", COLOR_ACCENT, 2);
         } else {
-            FontRenderer::drawText(m_renderer, text_x, text_y, "[OK] Jogo standalone (pronto para instalar e jogar).", COLOR_GREEN, 2);
+            FontRenderer::drawText(m_renderer, text_x, text_y, "[!] Download inclui instalacao automatica completa via Google Drive.", COLOR_ACCENT, 2);
         }
     }
 
@@ -480,50 +512,94 @@ void UI::renderDetails() {
 
     FontRenderer::drawText(m_renderer, cur_x, cur_y, port.title, COLOR_TEXT, 3);
     cur_y += 36;
-    FontRenderer::drawText(m_renderer, cur_x, cur_y, "Versão: " + port.version + " • Desenvolvido por: " + port.author, COLOR_MUTED, 2);
+
+    std::string ver_info = "Versao no Catalogo: v" + port.version + " • Autor: " + port.author;
+    if (port.is_installed()) {
+        std::string inst_v = port.get_installed_version();
+        ver_info += " (Instalada: v" + inst_v + ")";
+    }
+    FontRenderer::drawText(m_renderer, cur_x, cur_y, ver_info, COLOR_MUTED, 2);
     cur_y += 32;
 
-    // Tamanho do download
-    uint64_t total_bytes = port.get_total_download_size();
+    bool has_files = port.has_game_files();
+    bool update_avail = port.is_update_available();
+    bool only_nro = has_files || update_avail;
+
+    uint64_t total_bytes = only_nro ? port.get_update_download_size() : port.get_total_download_size();
     double total_mb = (double)total_bytes / (1024.0 * 1024.0);
     std::ostringstream ss_sz;
     if (total_mb >= 1000.0) ss_sz << std::fixed << std::setprecision(2) << (total_mb / 1024.0) << " GB";
     else ss_sz << std::fixed << std::setprecision(1) << total_mb << " MB";
-    FontRenderer::drawText(m_renderer, cur_x, cur_y, "Tamanho Total do Download: " + ss_sz.str(), COLOR_ACCENT, 2);
+
+    std::string sz_label = only_nro ? ("Tamanho do Download (.nro): " + ss_sz.str())
+                                    : ("Tamanho Total do Download: " + ss_sz.str());
+    SDL_Color sz_color = update_avail ? COLOR_WARN : COLOR_ACCENT;
+    FontRenderer::drawText(m_renderer, cur_x, cur_y, sz_label, sz_color, 2);
     cur_y += 32;
 
-    FontRenderer::drawText(m_renderer, cur_x, cur_y, "Destino no Cartão SD: " + port.installation.install_dir, COLOR_MUTED, 2);
+    FontRenderer::drawText(m_renderer, cur_x, cur_y, "Destino no Cartao SD: " + port.installation.install_dir, COLOR_MUTED, 2);
     cur_y += 36;
 
-    // Caixa de arquivos e instalação automática
+    // Caixa de arquivos e instalacao inteligente
     SDL_Rect box_auto = { cur_x, cur_y, 872, 160 };
     SDL_SetRenderDrawColor(m_renderer, 0x11, 0x15, 0x1F, 255);
     SDL_RenderFillRect(m_renderer, &box_auto);
     SDL_SetRenderDrawColor(m_renderer, 0x2A, 0x34, 0x46, 255);
     SDL_RenderDrawRect(m_renderer, &box_auto);
 
-    FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 16, "INSTALAÇÃO 1-CLIQUE AUTOMATIZADA:", COLOR_ACCENT, 2);
-
-    if (!port.extra_downloads.empty()) {
-        FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 48, "✓ O aplicativo baixará o executável e todo o pacote do jogo direto do Google Drive.", COLOR_GREEN, 2);
-        FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 76, "✓ As pastas e arquivos serão extraídos e organizados automaticamente no MicroSD.", COLOR_GREEN, 2);
-        FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 104, "✓ Compatível com Title Takeover (segure R ao iniciar qualquer jogo no Switch).", COLOR_MUTED, 2);
+    if (update_avail) {
+        FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 16, "NOVA ATUALIZACAO DISPONIVEL (v" + port.version + "):", COLOR_WARN, 2);
+        FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 48, "[OK] Arquivos e dados do jogo ja foram detectados no seu MicroSD.", COLOR_GREEN, 2);
+        FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 76, "[OK] O download baixara APENAS o executavel .nro atualizado (" + ss_sz.str() + ").", COLOR_GREEN, 2);
+        FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 104, "[*] Todos os seus saves e configuracoes serao mantidos intactos.", COLOR_MUTED, 2);
+    } else if (port.is_installed()) {
+        FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 16, "JOGO INSTALADO E ATUALIZADO:", COLOR_GREEN, 2);
+        FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 48, "[OK] Voce ja esta rodando a versao mais recente (v" + port.version + ").", COLOR_GREEN, 2);
+        FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 76, "[OK] Todos os arquivos estao prontos no cartao SD.", COLOR_GREEN, 2);
+        FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 104, "[*] Para jogar: abra via Title Takeover (segure R ao iniciar qualquer jogo).", COLOR_MUTED, 2);
+    } else if (has_files) {
+        FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 16, "ARQUIVOS DO JOGO DETECTADOS NO SD:", COLOR_ACCENT, 2);
+        FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 48, "[OK] Pasta do jogo ja contem os arquivos necessarios.", COLOR_GREEN, 2);
+        FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 76, "[OK] O aplicativo baixara somente o executavel .nro (" + ss_sz.str() + ").", COLOR_GREEN, 2);
+        FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 104, "[*] Instalacao rapida sem precisar baixar novamente o pacote completo.", COLOR_MUTED, 2);
     } else {
-        FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 48, "✓ Download direto do executável oficial homebrew.", COLOR_GREEN, 2);
+        FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 16, "INSTALACAO 1-CLIQUE COMPLETA:", COLOR_ACCENT, 2);
+        if (!port.extra_downloads.empty()) {
+            FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 48, "[OK] O aplicativo baixara o executavel e os dados direto do Google Drive.", COLOR_GREEN, 2);
+            FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 76, "[OK] As pastas e arquivos serao extraidos e organizados automaticamente.", COLOR_GREEN, 2);
+            FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 104, "[*] Compativel com Title Takeover (segure R ao abrir qualquer jogo).", COLOR_MUTED, 2);
+        } else {
+            FontRenderer::drawText(m_renderer, box_auto.x + 16, box_auto.y + 48, "[OK] Download direto do executavel oficial homebrew.", COLOR_GREEN, 2);
+        }
     }
 
     cur_y += 190;
 
-    // Botão de Ação Destacado
-    SDL_Rect btn_install = { cur_x, cur_y, 420, 54 };
-    SDL_SetRenderDrawColor(m_renderer, COLOR_ACCENT.r, COLOR_ACCENT.g, COLOR_ACCENT.b, 255);
-    SDL_RenderFillRect(m_renderer, &btn_install);
+    // Botao de Acao Destacado
+    SDL_Rect btn_install = { cur_x, cur_y, 450, 54 };
+    std::string btn_label;
+    SDL_Color btn_color = COLOR_ACCENT;
 
-    std::string btn_label = port.is_installed() ? "(A) REINSTALAR / ATUALIZAR" : "(A) BAIXAR E INSTALAR JOGO";
-    FontRenderer::drawText(m_renderer, btn_install.x + 24, btn_install.y + 18, btn_label, { 0x0C, 0x19, 0x13, 0xFF }, 2);
+    if (update_avail) {
+        btn_label = "(A) ATUALIZAR EXECUTAVEL (.NRO)";
+        btn_color = COLOR_WARN;
+    } else if (port.is_installed()) {
+        btn_label = "[ JOGO JA ATUALIZADO (v" + port.version + ") ]";
+        btn_color = COLOR_GREEN;
+    } else if (has_files) {
+        btn_label = "(A) INSTALAR EXECUTAVEL (.NRO)";
+        btn_color = COLOR_ACCENT;
+    } else {
+        btn_label = "(A) BAIXAR E INSTALAR JOGO";
+        btn_color = COLOR_ACCENT;
+    }
+
+    SDL_SetRenderDrawColor(m_renderer, btn_color.r, btn_color.g, btn_color.b, 255);
+    SDL_RenderFillRect(m_renderer, &btn_install);
+    FontRenderer::drawText(m_renderer, btn_install.x + 20, btn_install.y + 18, btn_label, { 0x0C, 0x19, 0x13, 0xFF }, 2);
 
     if (port.is_installed()) {
-        SDL_Rect btn_del = { cur_x + 440, cur_y, 240, 54 };
+        SDL_Rect btn_del = { cur_x + 470, cur_y, 220, 54 };
         SDL_SetRenderDrawColor(m_renderer, 0x3A, 0x18, 0x18, 255);
         SDL_RenderFillRect(m_renderer, &btn_del);
         SDL_SetRenderDrawColor(m_renderer, COLOR_DANGER.r, COLOR_DANGER.g, COLOR_DANGER.b, 255);
@@ -531,7 +607,7 @@ void UI::renderDetails() {
         FontRenderer::drawText(m_renderer, btn_del.x + 20, btn_del.y + 18, "(X) DESINSTALAR", COLOR_DANGER, 2);
     }
 
-    renderFooter("(A) Instalar Jogo Completo   (B) Voltar   (+) Sair");
+    renderFooter("(A) Confirmar Acao   (B) Voltar   (+) Sair");
 }
 
 void UI::renderDownloading() {

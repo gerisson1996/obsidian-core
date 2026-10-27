@@ -7,6 +7,16 @@ static bool fileExists(const std::string& path) {
     return (stat(path.c_str(), &st) == 0);
 }
 
+static bool writeVersionFile(const std::string& install_dir, const std::string& version) {
+    if (install_dir.empty() || version.empty()) return false;
+    std::string ver_path = install_dir + "/version.txt";
+    FILE* fp = fopen(ver_path.c_str(), "w");
+    if (!fp) return false;
+    fprintf(fp, "%s\n", version.c_str());
+    fclose(fp);
+    return true;
+}
+
 std::string Catalog::getDefaultCatalogUrl() {
     return "https://gerisson1996.github.io/obsidian-core/catalog/ports.json";
 }
@@ -19,13 +29,77 @@ uint64_t PortItem::get_total_download_size() const {
     return total;
 }
 
+uint64_t PortItem::get_update_download_size() const {
+    return package.download_size_bytes;
+}
+
 bool PortItem::is_installed() const {
     if (installation.entry_nro.empty()) return false;
     return fileExists(installation.entry_nro);
 }
 
+std::string PortItem::get_installed_version() const {
+    if (!is_installed()) return "";
+
+    std::string ver_path = installation.install_dir + "/version.txt";
+    FILE* fp = fopen(ver_path.c_str(), "r");
+    if (fp) {
+        char buf[64];
+        if (fgets(buf, sizeof(buf), fp)) {
+            std::string ver = buf;
+            while (!ver.empty() && (ver.back() == '\r' || ver.back() == '\n' || ver.back() == ' ')) {
+                ver.pop_back();
+            }
+            fclose(fp);
+            if (!ver.empty()) return ver;
+        } else {
+            fclose(fp);
+        }
+    }
+
+    // Se version.txt não existe mas o .nro está instalado, verifica se o tamanho confere com a versão atual
+    struct stat st;
+    if (stat(installation.entry_nro.c_str(), &st) == 0) {
+        if (package.installed_size_bytes > 0 && (uint64_t)st.st_size == package.installed_size_bytes) {
+            writeVersionFile(installation.install_dir, version);
+            return version;
+        }
+    }
+
+    return "antiga";
+}
+
 bool PortItem::is_update_available() const {
     if (!is_installed()) return false;
+    std::string inst_ver = get_installed_version();
+    if (inst_ver.empty() || inst_ver == "antiga") return true;
+    return (inst_ver != version);
+}
+
+bool PortItem::has_game_files() const {
+    if (extra_downloads.empty() && !original_files.required) {
+        return true;
+    }
+
+    // 1. Verifica se os arquivos originais requeridos já estão presentes
+    if (original_files.required && !original_files.required_files.empty()) {
+        for (const auto& req : original_files.required_files) {
+            if (!req.optional) {
+                std::string full_path = original_files.target_directory + "/" + req.relative_path;
+                if (fileExists(full_path)) return true;
+            }
+        }
+    }
+
+    // 2. Verifica se a pasta de destino dos arquivos extras contém default.xbe ou arquivos instalados
+    for (const auto& ed : extra_downloads) {
+        if (!ed.target_path.empty()) {
+            std::string test_file = ed.target_path + "/default.xbe";
+            if (fileExists(test_file)) return true;
+            if (fileExists(ed.target_path)) return true;
+        }
+    }
+
     return false;
 }
 

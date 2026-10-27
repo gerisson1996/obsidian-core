@@ -222,6 +222,7 @@ static bool downloadAndVerify(const std::string& url,
 }
 
 bool Installer::installPort(const PortItem& port, 
+                            bool only_update_nro,
                             DownloadProgressCallback progress_cb, 
                             ExtractProgressCallback extract_cb,
                             bool* cancel_flag, 
@@ -231,7 +232,8 @@ bool Installer::installPort(const PortItem& port,
         return false;
     }
 
-    uint64_t total_needed = port.get_total_download_size() + 200 * 1024 * 1024;
+    uint64_t total_needed = only_update_nro ? (port.package.download_size_bytes + 20 * 1024 * 1024)
+                                           : (port.get_total_download_size() + 200 * 1024 * 1024);
     uint64_t free_bytes = 0;
     if (!checkFreeSpace(port.installation.install_dir, total_needed, free_bytes)) {
         status_msg = "Espaço insuficiente no MicroSD!\nNecessário: " + 
@@ -253,6 +255,18 @@ bool Installer::installPort(const PortItem& port,
                            err)) {
         status_msg = err;
         return false;
+    }
+
+    // Se for apenas atualização do executável .nro, encerra aqui preservando os arquivos do jogo
+    if (only_update_nro) {
+        std::string ver_path = port.installation.install_dir + "/version.txt";
+        FILE* fp = fopen(ver_path.c_str(), "w");
+        if (fp) {
+            fprintf(fp, "%s\n", port.version.c_str());
+            fclose(fp);
+        }
+        status_msg = "Executável atualizado com sucesso para v" + port.version + "!\nSeus arquivos de jogo e saves foram mantidos intactos.";
+        return true;
     }
 
     // 2. Baixar arquivos e dados do jogo
@@ -301,6 +315,14 @@ bool Installer::installPort(const PortItem& port,
         }
     }
 
+    // Salva o registro da versão instalada
+    std::string ver_path = port.installation.install_dir + "/version.txt";
+    FILE* fp = fopen(ver_path.c_str(), "w");
+    if (fp) {
+        fprintf(fp, "%s\n", port.version.c_str());
+        fclose(fp);
+    }
+
     status_msg = "Instalação concluída com sucesso!\nTodos os arquivos foram extraídos e organizados.";
     return true;
 }
@@ -310,6 +332,9 @@ bool Installer::uninstallPort(const PortItem& port, std::string& status_msg) {
         status_msg = "Port não configurado.";
         return false;
     }
+
+    std::string ver_path = port.installation.install_dir + "/version.txt";
+    remove(ver_path.c_str());
 
     if (remove(port.installation.entry_nro.c_str()) == 0) {
         status_msg = "Executável .nro removido com sucesso.\n(Arquivos de jogo e configurações foram preservados).";

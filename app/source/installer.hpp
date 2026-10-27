@@ -22,6 +22,7 @@ public:
                            std::string& err_msg);
 
     static bool installPort(const PortItem& port, 
+                            bool only_update_nro,
                             DownloadProgressCallback progress_cb, 
                             ExtractProgressCallback extract_cb,
                             bool* cancel_flag, 

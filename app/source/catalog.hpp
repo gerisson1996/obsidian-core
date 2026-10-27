@@ -79,8 +79,11 @@ struct PortItem {
     OriginalGameFiles original_files;
 
     uint64_t get_total_download_size() const;
+    uint64_t get_update_download_size() const;
+    std::string get_installed_version() const;
     bool is_installed() const;
     bool is_update_available() const;
+    bool has_game_files() const;
     bool check_original_files_present(std::vector<std::string>& missing_files) const;
 };
 
