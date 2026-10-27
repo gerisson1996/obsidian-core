@@ -14,20 +14,21 @@ bool Network::initialize() {
     if (s_initialized) return true;
 
 #ifdef __SWITCH__
-    // Configuração oficial de alto desempenho BSD/Sockets usando bsd:s (sistema) e buffer amplo
+    // Configuração estável e compatível com todos os modos do Switch (Atmosphère/Horizon OS)
     SocketInitConfig sock_cfg = {
-        .tcp_tx_buf_size = 0x80000,       // 512 KB
-        .tcp_rx_buf_size = 0x200000,      // 2 MB
-        .tcp_tx_buf_max_size = 0x400000,   // 4 MB
-        .tcp_rx_buf_max_size = 0x1000000,  // 16 MB janela TCP
+        .tcp_tx_buf_size = 0x40000,       // 256 KB
+        .tcp_rx_buf_size = 0x80000,       // 512 KB
+        .tcp_tx_buf_max_size = 0x80000,   // 512 KB
+        .tcp_rx_buf_max_size = 0x80000,   // 512 KB
         .udp_tx_buf_size = 0x2400,
         .udp_rx_buf_size = 0xA500,
         .sb_efficiency = 2,
         .num_bsd_sessions = 3,
-        .bsd_service_type = BsdServiceType_Auto,
+        .bsd_service_type = BsdServiceType_User,
     };
     Result rc = socketInitialize(&sock_cfg);
     if (R_FAILED(rc)) {
+        socketExit();
         rc = socketInitializeDefault();
         if (R_FAILED(rc)) return false;
     }
@@ -126,7 +127,6 @@ bool Network::fetchString(const std::string& url, std::string& out_data, std::st
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
     curl_easy_setopt(curl, CURLOPT_COOKIEFILE, "");
     curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 1L);
-    curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 
     CURLcode res = curl_easy_perform(curl);
     if (res != CURLE_OK) {
@@ -248,11 +248,10 @@ bool Network::downloadFile(const std::string& url,
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &ctx);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
 
-    // Buffer de recepção de 512 KB para fluxo contínuo de alta velocidade
-    curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 512 * 1024);
+    // Buffer de recepção balanceado de 128 KB para streaming contínuo sem gargalo
+    curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 128 * 1024);
     curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 1L);
     curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
-    curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0 (Nintendo Switch; NXPortHub/1.0)");
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
@@ -261,7 +260,7 @@ bool Network::downloadFile(const std::string& url,
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
     curl_easy_setopt(curl, CURLOPT_COOKIEFILE, "");
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 15L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 20L);
 
     CURLcode res = curl_easy_perform(curl);
     fflush(fp);
